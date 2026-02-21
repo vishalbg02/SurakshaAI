@@ -1,0 +1,73 @@
+/*!*************************************************************************************************************************************************************************************************************************************************************!*\
+  !*** css ./node_modules/next/dist/build/webpack/loaders/css-loader/src/index.js??ruleSet[1].rules[14].oneOf[12].use[2]!./node_modules/next/dist/build/webpack/loaders/postcss-loader/src/index.js??ruleSet[1].rules[14].oneOf[12].use[3]!./app/globals.css ***!
+  \*************************************************************************************************************************************************************************************************************************************************************/
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   SurakshaAI – Global Styles
+   ============================================================ */
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-suraksha-dark text-gray-100 antialiased;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-suraksha-dark;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-suraksha-border rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-500;
+}
+
+/* Textarea focus ring */
+textarea:focus {
+  @apply outline-none ring-2 ring-suraksha-accent;
+}
+
+/* Gauge animation */
+@keyframes gauge-fill {
+  from {
+    stroke-dashoffset: 283;
+  }
+}
+
+.gauge-animate {
+  animation: gauge-fill 1.2s ease-out forwards;
+}
+
+/* Pulse animation for loading */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+.pulse-ring {
+  animation: pulse-ring 1.2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+/* Badge hover lift */
+.badge-hover {
+  @apply transition-transform duration-200;
+}
+.badge-hover:hover {
+  transform: translateY(-2px);
+}
