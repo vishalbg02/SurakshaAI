@@ -23,6 +23,10 @@ PATCH v7 (SOCIAL IMPERSONATION & PSYCH FLOORS):
   - Guard 2: Added moderate psych escalation (psych >= 30, rule < 20 → floor 35)
   - Guard 3.5: Social impersonation floor (rule >= 40 → floor 55)
 
+PATCH v8 (CALL/IVR & THREAT ESCALATION):
+  - Guard 3.6: Call transcript / IVR impersonation floor (→ 65)
+  - Guard 3.7: Dynamic threat escalation (fear + dynamic_urgency + rule >= 20 → 50)
+
 Protective guards (applied in order)
 -------------------------------------
 1. Rule protection floor (rule >= 80 → max(base, rule))
@@ -30,6 +34,8 @@ Protective guards (applied in order)
    2b. Moderate psych (psych >= 30 + rule < 20 → max(final, 35))
 3. Money request + urgency floor (→ max(final, 60))
 3.5. Social impersonation floor (rule >= 40 → max(final, 55))
+3.6. Call transcript / IVR impersonation floor (→ max(final, 65))
+3.7. Dynamic threat escalation (fear + dynamic_urgency + rule >= 20 → max(final, 50))
 4. Financial + urgency (no URL/OTP) → max(final, 65)
 5. Financial + urgency + suspicious URL → max(final, 85)
 6. Social impersonation elderly boost (1.2x)
@@ -215,6 +221,32 @@ def compute_final(
         # -------------------------------------------------------------------
         if "social_impersonation" in cats and rule_score >= 40:
             final = max(final, 55.0)
+
+        # -------------------------------------------------------------------
+        # Guard 3.6 (PATCH v8) – Call transcript / IVR impersonation escalation
+        #
+        # Call/IVR scam patterns (e.g. "Press 1 to avoid account freeze")
+        # combined with authority impersonation are strong fraud signals.
+        # Ensures call impersonation never shows as Low risk.
+        # Floor at 65 (High).
+        # -------------------------------------------------------------------
+        if "call_transcript" in cats:
+            final = max(final, 65.0)
+
+        # -------------------------------------------------------------------
+        # Guard 3.7 (PATCH v8) – Dynamic threat escalation
+        #
+        # Pure threat language (fear) combined with dynamic urgency
+        # (e.g. "within 12 hours") should not remain Low.
+        # Only activates when real threat language exists (rule >= 20).
+        # Floor at 50 (Medium). Does NOT escalate to High.
+        # -------------------------------------------------------------------
+        if (
+            "dynamic_urgency" in cats
+            and "fear" in cats
+            and rule_score >= 20
+        ):
+            final = max(final, 50.0)
 
         # -------------------------------------------------------------------
         # Guard 4 (PATCH v5) – TIERED financial + urgency escalation
