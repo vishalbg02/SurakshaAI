@@ -45,6 +45,10 @@ PATCH v6 (CONTEXT-AWARE FINANCIAL DETECTION):
   - Added negative-intent suppression (successfully, completed, etc.)
   - Preserves all strong cases: refund phish, vendor scam, OTP, etc.
   - No changes to thresholds, overrides, fusion, or URL scanner
+
+PATCH v7 (SOCIAL IMPERSONATION MONEY DETECTION):
+  - Added numeric money pattern detection (3+ digit numbers) to
+    _detect_social_impersonation for reliable has_money_request flagging
 """
 
 from __future__ import annotations
@@ -575,6 +579,12 @@ def _detect_social_impersonation(
     )
     if triggered and (urgency_in_existing or found_urgency):
         bonus_score += SOCIAL_URGENCY_BOOST
+
+    # PATCH v7: Detect numeric money pattern (₹, rs, or 3+ digit number)
+    # to reliably set has_money_request when social impersonation is triggered
+    money_pattern = re.search(r"\b\d{3,}\b", text)
+    if triggered and money_pattern:
+        has_money_request = True
 
     return bonus_score, has_money_request, extra_phrases
 

@@ -19,11 +19,17 @@ PATCH v5 (SCORING PROPORTIONALITY):
   - Prevents over-escalation to 100 for moderate-risk scams
   - Preserves strong detection for genuine high-risk stacked phishing
 
+PATCH v7 (SOCIAL IMPERSONATION & PSYCH FLOORS):
+  - Guard 2: Added moderate psych escalation (psych >= 30, rule < 20 → floor 35)
+  - Guard 3.5: Social impersonation floor (rule >= 40 → floor 55)
+
 Protective guards (applied in order)
 -------------------------------------
 1. Rule protection floor (rule >= 80 → max(base, rule))
 2. Psychological escalation (psych >= 80 → max(final, 75))
+   2b. Moderate psych (psych >= 30 + rule < 20 → max(final, 35))
 3. Money request + urgency floor (→ max(final, 60))
+3.5. Social impersonation floor (rule >= 40 → max(final, 55))
 4. Financial + urgency (no URL/OTP) → max(final, 65)
 5. Financial + urgency + suspicious URL → max(final, 85)
 6. Social impersonation elderly boost (1.2x)
@@ -183,8 +189,13 @@ def compute_final(
 
         # Guard 2 – Psychological escalation
         # Heavy manipulation stacking is itself a strong fraud signal.
+        # PATCH v7: Added moderate psych escalation for psych >= 30
+        # with weak rule signals (rule < 20) to prevent false
+        # "No Significant Fraud Patterns" on psych-only manipulation.
         if psych_score >= 80:
             final = max(final, 75.0)
+        elif psych_score >= 30 and rule_score < 20:
+            final = max(final, 35.0)
 
         # Guard 3 – Money request + urgency floor (v2)
         urgency_present = bool(
@@ -192,6 +203,18 @@ def compute_final(
         )
         if has_money_request and urgency_present:
             final = max(final, 60.0)
+
+        # -------------------------------------------------------------------
+        # Guard 3.5 (PATCH v7) – Social impersonation protective floor
+        #
+        # If social_impersonation is detected AND rule_score >= 40,
+        # ensure the final score is at least 55 (Medium risk).
+        # This prevents social impersonation from displaying as
+        # "No Significant Fraud Patterns" in the UI.
+        # Does NOT escalate to High unless other signals exist.
+        # -------------------------------------------------------------------
+        if "social_impersonation" in cats and rule_score >= 40:
+            final = max(final, 55.0)
 
         # -------------------------------------------------------------------
         # Guard 4 (PATCH v5) – TIERED financial + urgency escalation
