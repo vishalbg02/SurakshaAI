@@ -10,16 +10,25 @@ DESIGN PRINCIPLE – Protective Fusion
 False negatives (missing real fraud) are far more dangerous than
 false positives.  The fusion strategy is asymmetrically protective.
 
+PATCH v5 (SCORING PROPORTIONALITY):
+  - Clamped psych contribution: min(psych_score, 70) * weight
+  - Tiered financial + urgency floors based on signal count
+  - Financial + urgency WITHOUT URL/OTP → floor 65 (not 90, not 100)
+  - Financial + urgency + suspicious URL → floor 85
+  - OTP + suspicious URL → floor 90 (UNCHANGED)
+  - Prevents over-escalation to 100 for moderate-risk scams
+  - Preserves strong detection for genuine high-risk stacked phishing
+
 Protective guards (applied in order)
 -------------------------------------
 1. Rule protection floor (rule >= 80 → max(base, rule))
 2. Psychological escalation (psych >= 80 → max(final, 75))
 3. Money request + urgency floor (→ max(final, 60))
-4. Financial data request + any urgency floor (→ max(final, 60))
-5. Financial data request + dynamic urgency reinforcement (v4 → max(final, 60))
+4. Financial + urgency (no URL/OTP) → max(final, 65)
+5. Financial + urgency + suspicious URL → max(final, 85)
 6. Social impersonation elderly boost (1.2x)
 7. AI dominance override (AI > 0.75 + rule < 20 → max(final, 45))
-8. Critical override (OTP + URL → max(final, 90))
+8. Critical override: OTP + suspicious URL → max(final, 90)
 9. Clamp [0, 100]
 
 Risk mapping (UNCHANGED)
@@ -70,12 +79,6 @@ def _agreement_type(
 ) -> str:
     """
     Determine which engine is dominant.
-
-    Returns:
-      "RULE_DOMINANT"           – rule >= 70, AI < 0.2
-      "AI_DOMINANT"             – AI >= 0.8, rule < 30
-      "AI_DOMINANT_ESCALATION"  – AI > 0.75, rule < 20, escalation applied
-      "BALANCED"                – neither dominates
     """
     if ai_dominant_escalation:
         return "AI_DOMINANT_ESCALATION"
@@ -124,7 +127,7 @@ def compute_final(
     dict
         final_score     – int 0-100
         risk_level      – str
-        agreement_level – str  (backward compatible)
+        agreement_level – str
         agreement_type  – str
     """
     cats = set(categories or [])
@@ -139,28 +142,47 @@ def compute_final(
 
     # -----------------------------------------------------------------------
     # Step 1: Compute base score
+    #
+    # PATCH v5: Psych contribution is CLAMPED to prevent psychological
+    # score alone from pushing the final score to 100.
+    # psych_component = min(psych_score, 70) * psych_weight
+    # This means even a psych_score of 100 contributes at most 7 points
+    # (70 * 0.10) to the fusion, not 10.
     # -----------------------------------------------------------------------
+    clamped_psych = min(psych_score, 70)
+
     if not ai_enabled:
         final = float(effective_rule_score)
     else:
         ai_scaled = ai_probability * 100
 
         if ai_confidence >= 0.4:
-            base = (0.45 * effective_rule_score) + (0.45 * ai_scaled) + (0.10 * psych_score)
+            base = (
+                (0.45 * effective_rule_score)
+                + (0.45 * ai_scaled)
+                + (0.10 * clamped_psych)
+            )
         else:
-            base = (0.70 * effective_rule_score) + (0.20 * ai_scaled) + (0.10 * psych_score)
+            base = (
+                (0.70 * effective_rule_score)
+                + (0.20 * ai_scaled)
+                + (0.10 * clamped_psych)
+            )
 
         # -------------------------------------------------------------------
-        # Step 2: Protective guards
+        # Step 2: Protective guards (applied in strict order)
         # -------------------------------------------------------------------
 
         # Guard 1 – Rule protection floor
+        # If the rule engine is very confident (>= 80), the AI cannot
+        # drag the score down.
         if effective_rule_score >= 80:
             final = max(base, float(effective_rule_score))
         else:
             final = base
 
         # Guard 2 – Psychological escalation
+        # Heavy manipulation stacking is itself a strong fraud signal.
         if psych_score >= 80:
             final = max(final, 75.0)
 
@@ -171,36 +193,50 @@ def compute_final(
         if has_money_request and urgency_present:
             final = max(final, 60.0)
 
-        # Guard 4 – Financial data request + any urgency floor (v3)
-        # WHY: Refund phishing and billing scams combine financial action
-        # requests with time pressure.  Must be at least Medium.
+        # -------------------------------------------------------------------
+        # Guard 4 (PATCH v5) – TIERED financial + urgency escalation
+        #
+        # Instead of a single floor, we use tiered escalation based on
+        # how many high-risk signals are present.  This restores score
+        # differentiation between:
+        #   - financial + urgency only (moderate risk → 65)
+        #   - financial + urgency + suspicious URL (high risk → 85)
+        #   - OTP + URL (critical → 90, handled by Guard 7)
+        #
+        # This prevents vendor scams with no URL/OTP from hitting 100
+        # while ensuring they don't drop below Medium.
+        # -------------------------------------------------------------------
         has_financial = "financial_data_request" in cats
         has_any_urgency = bool(
             cats & {"urgency", "hindi_urgency", "dynamic_urgency"}
         )
-        if has_financial and has_any_urgency:
-            final = max(final, 60.0)
 
-        # Guard 5 (v4) – Financial + dynamic_urgency reinforcement
-        # WHY: Explicit dynamic time pressure ("within 24 hours",
-        # "by tomorrow") combined with financial data requests is a
-        # hallmark of corporate invoice fraud and vendor payment scams.
-        # This guard is intentionally separate from Guard 4 to ensure
-        # it cannot be bypassed if Guard 4's urgency detection fails
-        # for edge cases.  Both guards enforce the same floor (60).
-        has_dynamic_urgency = "dynamic_urgency" in cats
-        if has_financial and has_dynamic_urgency:
-            final = max(final, 60.0)
+        if has_financial and has_any_urgency:
+            if has_suspicious_url:
+                # Financial + urgency + suspicious URL = strong phishing signal
+                # Floor at 85 (High/Critical boundary)
+                final = max(final, 85.0)
+            elif not has_otp:
+                # Financial + urgency but NO suspicious URL and NO OTP
+                # This is likely a vendor scam or refund phish without
+                # a malicious link.  Floor at 65 (solidly Medium-High).
+                # Does NOT escalate to Critical.
+                final = max(final, 65.0)
+            # If has_otp but no URL, Guard 7 won't trigger the ≥90 override,
+            # but the OTP category weight (18) already pushes rule_score up.
+
+        # Guard 5 – Social impersonation elderly boost is handled in Step 0.
 
         # Guard 6 – AI dominance override (v3)
+        # When AI detects fraud but rules missed it (novel language).
         if ai_probability > 0.75 and rule_score < 20:
             if final < 45:
                 final = 45.0
                 ai_dominant_escalation = True
 
-        # Guard 7 – Critical override (OTP + suspicious URL)
-        # This is the highest-priority override and is applied LAST
-        # so nothing downstream can reduce it.
+        # Guard 7 – Critical override: OTP + suspicious URL
+        # This is the HIGHEST priority override. Applied LAST so nothing
+        # downstream can reduce it.  UNCHANGED from v1.
         if has_otp and has_suspicious_url:
             final = max(final, 90.0)
 

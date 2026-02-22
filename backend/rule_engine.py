@@ -16,18 +16,23 @@ ENHANCEMENT v2:
   - Added has_money_request flag
 
 ENHANCEMENT v3 (HARDENING):
-  - Added financial_data_request category (weight 22)
-  - Added dynamic_urgency regex detection (+15)
-  - Added financial + urgency escalation floor (min 60)
+  - Added financial_data_request category
+  - Added dynamic_urgency regex detection
+  - Added financial + urgency escalation floor
   - Added compound financial detection
   - Migrated ALL keyword matching to word-boundary regex
   - Eliminated substring false positives
 
 ENHANCEMENT v4 (FINANCIAL HARDENING):
   - Expanded financial_data_request with corporate/vendor/invoice phrases
-  - Strengthened dynamic urgency regex (by today/tomorrow, before X am/pm)
-  - Guaranteed financial + dynamic_urgency floor at raw level (pre-normalisation)
-  - All additions are word-boundary safe
+  - Strengthened dynamic urgency regex
+
+PATCH v5 (SCORING PROPORTIONALITY):
+  - Reduced financial_data_request weight from 22 to 16
+  - Reduced dynamic_urgency weight from 15 to 10
+  - Removed raw score forcing to 100
+  - Floors only enforce minimum, never inflate to ceiling
+  - Preserves detection coverage, restores score differentiation
 """
 
 from __future__ import annotations
@@ -120,15 +125,14 @@ SCAM_KEYWORDS: dict[str, tuple[int, list[str]]] = {
     ),
 
     # ------------------------------------------------------------------
-    # Financial data request / refund phishing
-    # ENHANCED v4: expanded with corporate, vendor, invoice, bank detail
-    # phrases for stronger coverage of B2B and payment scams.
-    # Weight: 22 (unchanged)
+    # Financial data request / refund phishing / corporate fraud
+    # PATCH v5: weight reduced from 22 → 16 to prevent score inflation
+    # when multiple financial phrases match in a single message.
+    # Detection coverage is unchanged; only per-hit contribution is lower.
     # ------------------------------------------------------------------
     "financial_data_request": (
-        22,
+        16,
         [
-            # v3 original phrases
             "refund", "rejected", "transaction declined",
             "payment failed", "billing issue",
             "update payment", "update payment method",
@@ -139,7 +143,6 @@ SCAM_KEYWORDS: dict[str, tuple[int, list[str]]] = {
             "avoid account closure", "account closure",
             "temporary suspension", "account restricted",
             "processing issue",
-            # v4 expanded – corporate / vendor / invoice fraud
             "bank details",
             "update bank details",
             "confirm bank details",
@@ -258,40 +261,34 @@ SOCIAL_URGENCY_BOOST: int = 10
 
 # ============================================================================
 # DYNAMIC TIME PRESSURE REGEX
-# ENHANCED v4: Added "by today", "by tomorrow", "before X am/pm" with
-# optional digits, and strengthened hour/day/minute matching.
+# PATCH v5: weight reduced from 15 → 10. Urgency alone should not
+# inflate score excessively. The detection patterns are unchanged.
 # ============================================================================
 
 DYNAMIC_TIME_PATTERNS: list[re.Pattern] = [
-    # "within 24 hours", "within 6 hrs", "within 48 hrs",
-    # "within 12 hours", "within 30 minutes", "within 2 days"
     re.compile(
         r"\bwithin\s+\d+\s*(?:hours?|hrs?|days?|minutes?|mins?)\b",
         re.IGNORECASE,
     ),
-    # "in 24 hours", "in 6 hrs", "in 2 days"
     re.compile(
         r"\bin\s+\d+\s*(?:hours?|hrs?|days?|minutes?|mins?)\b",
         re.IGNORECASE,
     ),
-    # "before 5 PM", "before 11 am", "before 3pm"
     re.compile(
         r"\bbefore\s+\d{1,2}\s*(?:am|pm)\b",
         re.IGNORECASE,
     ),
-    # "by 5 PM", "by 11 am" (with digits)
     re.compile(
         r"\bby\s+\d{1,2}\s*(?:am|pm)\b",
         re.IGNORECASE,
     ),
-    # "by today", "by tomorrow"
     re.compile(
         r"\bby\s+(?:today|tomorrow)\b",
         re.IGNORECASE,
     ),
 ]
 
-DYNAMIC_URGENCY_WEIGHT: int = 15
+DYNAMIC_URGENCY_WEIGHT: int = 10
 
 # ============================================================================
 # COMPOUND FINANCIAL DETECTION PATTERNS
@@ -302,18 +299,16 @@ _CONFIRM_VERIFY_UPDATE_RE = re.compile(
     r"\b(?:confirm|verify|update)\b", re.IGNORECASE
 )
 
-# Maximum possible raw score normalisation divisor.
+# Normalisation divisor.
 _NORMALISATION_DIVISOR: int = 60
 
 # ============================================================================
-# FINANCIAL + DYNAMIC URGENCY ESCALATION FLOOR (v4)
-# When both financial_data_request AND dynamic_urgency are detected,
-# the raw score must be at least this value so that after normalisation
-# the final score is >= 60 (Medium risk).
-#   floor_raw / _NORMALISATION_DIVISOR * 100 >= 60
-#   floor_raw >= 60 * 60 / 100 = 36
+# FINANCIAL + DYNAMIC URGENCY ESCALATION FLOOR
+# PATCH v5: The raw floor is set so normalised score lands around 60-65,
+# NOT at 100.  This is a MINIMUM, not a target.
+#   floor_raw / 60 * 100 ~= 62  →  floor_raw = 37
 # ============================================================================
-_FINANCIAL_DYNAMIC_URGENCY_RAW_FLOOR: int = 36
+_FINANCIAL_DYNAMIC_URGENCY_RAW_FLOOR: int = 37
 
 
 # ============================================================================
@@ -326,8 +321,6 @@ _regex_cache: dict[str, re.Pattern] = {}
 def _phrase_to_regex(phrase: str) -> re.Pattern:
     """
     Convert a keyword/phrase to a word-boundary-aware compiled regex.
-    Phrases ending with comma use comma as literal boundary.
-    Results are cached for performance.
     """
     if phrase in _regex_cache:
         return _regex_cache[phrase]
@@ -347,7 +340,6 @@ def _phrase_to_regex(phrase: str) -> re.Pattern:
 def _word_boundary_match(phrase: str, text: str) -> bool:
     """
     Return True if *phrase* appears in *text* as a whole-word match.
-    Prevents substring false positives (e.g. "fir" inside "confirm").
     """
     regex = _phrase_to_regex(phrase)
     return bool(regex.search(text))
@@ -381,9 +373,7 @@ def _detect_keywords(text: str) -> tuple[int, list[str], list[dict[str, str]]]:
 def _detect_dynamic_urgency(text: str) -> tuple[int, list[dict[str, str]]]:
     """
     Detect dynamic time-pressure phrases using regex.
-    Returns bonus score and matched phrase dicts.
-    Only counts ONE hit to avoid over-scoring on messages with
-    multiple time references.
+    Only counts ONE hit to avoid over-scoring.
     """
     bonus: int = 0
     phrases: list[dict[str, str]] = []
@@ -396,7 +386,7 @@ def _detect_dynamic_urgency(text: str) -> tuple[int, list[dict[str, str]]]:
                 "phrase": match.group(0),
                 "category": "dynamic_urgency",
             })
-            break  # one dynamic urgency hit is sufficient
+            break
 
     return bonus, phrases
 
@@ -407,8 +397,8 @@ def _detect_compound_financial(
     has_dynamic_urgency: bool,
 ) -> tuple[int, list[dict[str, str]]]:
     """
-    Compound detection: if message mentions "account" + "confirm/verify/update"
-    AND contains time pressure → flag as financial_data_request.
+    Compound detection: "account" + "confirm/verify/update" + time pressure
+    → flag as financial_data_request.
     Only triggers if financial_data_request is NOT already detected.
     """
     if "financial_data_request" in existing_categories:
@@ -421,7 +411,8 @@ def _detect_compound_financial(
     )
 
     if has_account and has_action and has_time_pressure:
-        return 22, [
+        # Use the reduced weight (16) for compound detection too
+        return 16, [
             {"phrase": "account + confirm/verify/update + time pressure",
              "category": "financial_data_request"},
         ]
@@ -549,26 +540,26 @@ def analyze(text: str) -> dict[str, Any]:
     if url_result["suspicious_urls"]:
         categories = sorted(set(categories) | {"suspicious_url"})
 
-    # --- Financial + urgency escalation floors --------------------------------
+    # --- Flags ---------------------------------------------------------------
     has_financial_request = "financial_data_request" in set(categories)
     has_any_urgency = bool(
         {"urgency", "hindi_urgency", "dynamic_urgency"} & set(categories)
     )
 
-    # v4 SPECIFIC: financial_data_request + dynamic_urgency raw floor
-    # This guarantees that vendor/invoice scams with explicit time pressure
-    # always normalise to at least 60 (Medium risk).
-    if has_financial_request and has_dynamic_urgency:
-        raw_score = max(raw_score, _FINANCIAL_DYNAMIC_URGENCY_RAW_FLOOR)
-
-    # General financial + any urgency floor (v3 preserved)
+    # --- Financial + urgency floor (MINIMUM only, never forces to ceiling) ---
+    # PATCH v5: This floor ensures financial scams with urgency don't drop
+    # below ~62 normalised, but does NOT inflate them to 100.
+    # The floor is applied to raw_score BEFORE normalisation so the result
+    # scales naturally with the divisor.
     if has_financial_request and has_any_urgency:
         raw_score = max(raw_score, _FINANCIAL_DYNAMIC_URGENCY_RAW_FLOOR)
 
-    # --- normalise to 0-100 --------------------------------------------------
+    # --- Normalise to 0-100 --------------------------------------------------
+    # PATCH v5: No forced raw_score = 100 anywhere.  The normalisation
+    # formula is the sole determinant of the final rule score.
     normalised = int(min((raw_score / _NORMALISATION_DIVISOR) * 100, 100))
 
-    # --- flags ---------------------------------------------------------------
+    # --- Build flags dict ----------------------------------------------------
     has_otp = _has_otp_request(categories)
     has_suspicious_url = len(url_result["suspicious_urls"]) > 0
 
@@ -591,58 +582,51 @@ def analyze(text: str) -> dict[str, Any]:
 # TEST CASES (comment block – not runtime code)
 # ============================================================================
 #
-# === SOCIAL IMPERSONATION TESTS ===
+# === SCORING PROPORTIONALITY TESTS (v5) ===
 #
-# 1. "Hi Dad I lost my phone send 10000 urgently"
-#    → social_impersonation + urgency, has_money_request: True
+# 1. Refund Phish (no URL, no OTP):
+#    "Your refund could not be processed.
+#     Confirm your account information to prevent cancellation."
+#    → financial_data_request, score 60-75, Medium/High, NOT 100
 #
-# 2. "Hi mom this is my new number. My old number stopped working.
-#     Can you please send Rs 5000 on Google Pay? Need it urgently."
-#    → social_impersonation + urgency, has_money_request: True
-#
-# === FINANCIAL HARDENING TESTS (v3/v4) ===
-#
-# 3. Refund Phishing:
-#    "We attempted to process your refund but your bank rejected it.
-#     Confirm your account details within 6 hours to avoid cancellation."
-#    → financial_data_request + dynamic_urgency, score >= 60
-#
-# 4. Soft Closure Threat:
-#    "Failure to comply within 12 hours will result in account closure."
-#    → financial_data_request + dynamic_urgency, score >= 60
-#
-# 5. Legitimate Order:
-#    "Your Amazon order #12345 has shipped."
-#    → no categories, score 0, Low
-#
-# 6. Classic OTP Scam:
-#    "Share OTP immediately at http://fake-bank.in"
-#    → OTP + suspicious URL override >= 90
-#
-# 7. Substring Safety:
-#    "Please confirm your booking for tomorrow."
-#    → "fir" must NOT appear in matched phrases
-#
-# === v4 CORPORATE / VENDOR TESTS ===
-#
-# 8. Vendor Payment Scam:
+# 2. Vendor Scam (no URL, no OTP):
 #    "We are unable to process your vendor payment.
 #     Please update bank details within 24 hours."
-#    → financial_data_request + dynamic_urgency, score >= 60, NOT Low
+#    → financial_data_request + dynamic_urgency, score 65-80, High, NOT 100
 #
-# 9. Invoice Fraud:
+# 3. Vendor + Suspicious URL:
+#    "Update bank details within 24 hours at https://hdfc-secure-update.co.in"
+#    → financial_data_request + dynamic_urgency + suspicious_url
+#    → score 85-95, High/Critical
+#
+# 4. OTP + Suspicious URL:
+#    "Share OTP immediately at http://fake-bank.in"
+#    → OTP + suspicious URL override, score ≥ 90, Critical
+#
+# 5. Legitimate Reminder:
+#    "Reminder: Your gym membership renews tomorrow."
+#    → no categories, score 0-10, Low
+#
+# === LEGACY TESTS (still valid) ===
+#
+# 6. Social impersonation:
+#    "Hi Dad I lost my phone send 10000 urgently"
+#    → social_impersonation + urgency, has_money_request: True
+#
+# 7. Authority + fear + KYC:
+#    "Your SBI account blocked due to KYC expiry click link to verify"
+#    → authority_impersonation + fear + kyc_scam
+#
+# 8. Substring safety:
+#    "Please confirm your booking for tomorrow."
+#    → "fir" must NOT appear in matched phrases, Low
+#
+# 9. Invoice fraud:
 #    "Invoice overdue. Wire transfer funds by tomorrow to avoid penalty."
-#    → financial_data_request + dynamic_urgency + fear, score >= 60
+#    → financial_data_request + dynamic_urgency + fear, 65-80
 #
-# 10. Bank Detail Update:
-#     "Please update bank details within 24 hours."
-#     → financial_data_request + dynamic_urgency, score >= 60
-#
-# 11. Refund Manipulation:
-#     "Your refund could not be processed. Confirm account information
-#      within 48 hrs to avoid cancellation."
-#     → financial_data_request + dynamic_urgency, score >= 60
-#
-# 12. Legitimate Gym Reminder:
-#     "Reminder: Your gym membership renews tomorrow."
-#     → no categories, score 0, Low
+# 10. Full stacked phishing (all signals):
+#     "Dear customer, your SBI account has been blocked due to KYC expiry.
+#      Share OTP and click http://sbi-kyc-update.in to verify immediately
+#      or account will be permanently closed within 24 hours."
+#     → OTP + URL + authority + fear + urgency + KYC, score 95-100, Critical
