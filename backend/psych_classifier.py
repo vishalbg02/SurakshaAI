@@ -12,12 +12,9 @@ Categories
 - Scarcity                  – limited availability, exclusive offers
 - Emotional Manipulation    – family impersonation, trust exploitation (v2)
 - Financial Pressure (v3)   – refund/billing threats to create monetary fear
+- Financial Coercion (v4)   – broader financial manipulation detection
 
-ENHANCEMENT v3 (HARDENING):
-  - Migrated ALL matching to word-boundary regex (\b...\b)
-  - Eliminated substring false positives ("fir" inside "confirm")
-  - Expanded Fear triggers with soft coercion phrases
-  - Added Financial Pressure category (weight 25)
+All matching uses word-boundary regex to prevent substring false positives.
 
 Returns a psych_score (0-100) and human-readable explanation.
 """
@@ -28,7 +25,7 @@ import re
 from typing import Any
 
 # ============================================================================
-# Word-boundary matching (replaces raw substring matching)
+# Word-boundary matching
 # ============================================================================
 
 _psych_regex_cache: dict[str, re.Pattern] = {}
@@ -37,10 +34,7 @@ _psych_regex_cache: dict[str, re.Pattern] = {}
 def _psych_word_match(keyword: str, text: str) -> bool:
     """
     Word-boundary match for psychological keywords.
-    Prevents substring false positives (e.g. "fir" inside "confirm",
-    "arrest" inside "arrested" is fine because both are the same root).
-
-    Multi-word phrases get \b at start and end only.
+    Prevents substring false positives (e.g. "fir" inside "confirm").
     """
     if keyword not in _psych_regex_cache:
         escaped = re.escape(keyword)
@@ -52,7 +46,6 @@ def _psych_word_match(keyword: str, text: str) -> bool:
 
 # ============================================================================
 # Psychological trigger keyword banks
-# Each category maps to (weight_per_hit, keyword_list).
 # ============================================================================
 
 PSYCH_TRIGGERS: dict[str, tuple[int, list[str]]] = {
@@ -65,7 +58,7 @@ PSYCH_TRIGGERS: dict[str, tuple[int, list[str]]] = {
             "fraud detected", "unauthorized access", "security alert",
             "compromised", "investigation", "frozen",
             "permanently closed", "will be deactivated",
-            # v3 expanded fear triggers
+            # v3 expanded
             "account closure", "avoid cancellation", "failure to comply",
             "account suspended", "temporary restriction",
             "service termination", "final warning",
@@ -145,12 +138,7 @@ PSYCH_TRIGGERS: dict[str, tuple[int, list[str]]] = {
         ],
     ),
 
-    # ------------------------------------------------------------------
-    # NEW v3: Financial Pressure
-    # Detects attempts to create monetary fear/anxiety.
-    # Higher weight (25) because financial pressure combined with
-    # action demands is a hallmark of refund phishing and billing scams.
-    # ------------------------------------------------------------------
+    # v3: Financial Pressure
     "Financial Pressure": (
         25,
         [
@@ -165,6 +153,32 @@ PSYCH_TRIGGERS: dict[str, tuple[int, list[str]]] = {
             "temporary suspension", "account restricted",
         ],
     ),
+
+    # ------------------------------------------------------------------
+    # NEW v4: Financial Coercion
+    # Broader detection for corporate invoice fraud, vendor scams,
+    # and bank detail manipulation.  Weight 25 reflects the severity
+    # of financial coercion as a manipulation tactic.
+    # ------------------------------------------------------------------
+    "Financial Coercion": (
+        25,
+        [
+            "refund", "rejected", "declined",
+            "billing", "invoice", "payment",
+            "cancellation", "suspension",
+            "restricted", "overdue", "penalty",
+            "wire transfer", "transfer funds",
+            "bank details", "update bank details",
+            "confirm bank details",
+            "vendor payment", "process payment",
+            "payment pending", "payment rejected",
+            "account information",
+            "update account information",
+            "confirm account information",
+            "refund could not be processed",
+            "invoice overdue",
+        ],
+    ),
 }
 
 # Normalisation divisor
@@ -172,7 +186,7 @@ _NORMALISATION_DIVISOR: int = 50
 
 
 # ============================================================================
-# Compound financial pressure detection (NEW v3)
+# Compound financial pressure detection
 # ============================================================================
 
 _FIN_COMPOUND_PAIRS: list[tuple[str, str]] = [
@@ -182,13 +196,16 @@ _FIN_COMPOUND_PAIRS: list[tuple[str, str]] = [
     ("payment", "confirm"),
     ("payment", "verify"),
     ("transaction", "verify"),
+    ("invoice", "transfer"),
+    ("vendor", "update"),
+    ("bank details", "confirm"),
+    ("bank details", "update"),
 ]
 
 
 def _detect_financial_pressure_compound(text: str) -> bool:
     """
-    Return True if text contains a compound financial pressure pattern
-    (e.g. "refund" + "confirm" both present).
+    Return True if text contains a compound financial pressure pattern.
     """
     for word_a, word_b in _FIN_COMPOUND_PAIRS:
         if _psych_word_match(word_a, text) and _psych_word_match(word_b, text):
@@ -210,6 +227,12 @@ _FINANCIAL_PRESSURE_EXPLANATION = (
     "This message creates financial pressure by suggesting loss of money "
     "or a failed refund unless immediate action is taken. This is a common "
     "tactic in refund phishing and billing scams."
+)
+
+_FINANCIAL_COERCION_EXPLANATION = (
+    "This message creates financial pressure by implying monetary loss, "
+    "billing problems, or payment failure unless immediate action is taken. "
+    "Corporate invoice fraud and vendor payment scams commonly use this tactic."
 )
 
 
@@ -235,7 +258,6 @@ def classify(text: str) -> dict[str, Any]:
     for category, (weight, keywords) in PSYCH_TRIGGERS.items():
         hits: list[str] = []
         for kw in keywords:
-            # Word-boundary matching prevents substring false positives
             if _psych_word_match(kw, text):
                 hits.append(kw)
                 raw_score += weight
@@ -246,9 +268,7 @@ def classify(text: str) -> dict[str, Any]:
                 f"{category}: detected phrases – {', '.join(hits)}"
             )
 
-    # Compound financial pressure detection (NEW v3)
-    # If compound pair found but Financial Pressure not already triggered,
-    # add it with its weight
+    # Compound financial pressure detection
     if "Financial Pressure" not in triggered_categories:
         if _detect_financial_pressure_compound(text):
             triggered_categories.append("Financial Pressure")
@@ -263,12 +283,13 @@ def classify(text: str) -> dict[str, Any]:
 
     # Build explanation
     if triggered_categories:
-        # Prioritise specific explanations for key categories
         preambles: list[str] = []
         if "Emotional Manipulation" in triggered_categories:
             preambles.append(_EMOTIONAL_EXPLANATION)
         if "Financial Pressure" in triggered_categories:
             preambles.append(_FINANCIAL_PRESSURE_EXPLANATION)
+        if "Financial Coercion" in triggered_categories:
+            preambles.append(_FINANCIAL_COERCION_EXPLANATION)
 
         if preambles:
             explanation = (

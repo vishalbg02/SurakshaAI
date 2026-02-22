@@ -10,27 +10,17 @@ DESIGN PRINCIPLE – Protective Fusion
 False negatives (missing real fraud) are far more dangerous than
 false positives.  The fusion strategy is asymmetrically protective.
 
-ENHANCEMENT v2:
-  - Added money_request + urgency override (floor = 60)
-  - Added social_impersonation + elderly profile boost (1.2x)
-  - Added agreement_type field
-
-ENHANCEMENT v3 (HARDENING):
-  - Added financial_data_request + urgency escalation floor (60)
-  - Added AI dominance override (AI > 0.75 + rule < 20 → floor 45)
-  - agreement_type now includes AI_DOMINANT_ESCALATION
-  - All existing overrides preserved
-
 Protective guards (applied in order)
 -------------------------------------
 1. Rule protection floor (rule >= 80 → max(base, rule))
 2. Psychological escalation (psych >= 80 → max(final, 75))
 3. Money request + urgency floor (→ max(final, 60))
-4. Financial data request + urgency floor (NEW v3 → max(final, 60))
-5. Social impersonation elderly boost (1.2x)
-6. AI dominance override (NEW v3 → max(final, 45))
-7. Critical override (OTP + URL → max(final, 90))
-8. Clamp [0, 100]
+4. Financial data request + any urgency floor (→ max(final, 60))
+5. Financial data request + dynamic urgency reinforcement (v4 → max(final, 60))
+6. Social impersonation elderly boost (1.2x)
+7. AI dominance override (AI > 0.75 + rule < 20 → max(final, 45))
+8. Critical override (OTP + URL → max(final, 90))
+9. Clamp [0, 100]
 
 Risk mapping (UNCHANGED)
 ------------------------
@@ -84,7 +74,7 @@ def _agreement_type(
     Returns:
       "RULE_DOMINANT"           – rule >= 70, AI < 0.2
       "AI_DOMINANT"             – AI >= 0.8, rule < 30
-      "AI_DOMINANT_ESCALATION"  – NEW v3: AI > 0.75, rule < 20, escalation applied
+      "AI_DOMINANT_ESCALATION"  – AI > 0.75, rule < 20, escalation applied
       "BALANCED"                – neither dominates
     """
     if ai_dominant_escalation:
@@ -181,11 +171,9 @@ def compute_final(
         if has_money_request and urgency_present:
             final = max(final, 60.0)
 
-        # Guard 4 (NEW v3) – Financial data request + urgency floor
+        # Guard 4 – Financial data request + any urgency floor (v3)
         # WHY: Refund phishing and billing scams combine financial action
-        # requests with time pressure.  If the rule engine detected
-        # financial_data_request AND any form of urgency, the final score
-        # must be at least 60 (Medium) to ensure the user is warned.
+        # requests with time pressure.  Must be at least Medium.
         has_financial = "financial_data_request" in cats
         has_any_urgency = bool(
             cats & {"urgency", "hindi_urgency", "dynamic_urgency"}
@@ -193,18 +181,26 @@ def compute_final(
         if has_financial and has_any_urgency:
             final = max(final, 60.0)
 
-        # Guard 5 (NEW v3) – AI dominance override
-        # WHY: When the AI model detects strong fraud semantics
-        # (probability > 0.75) but the rule engine scored low (< 20),
-        # it means the scam uses novel language that keyword matching
-        # missed.  We escalate to at least 45 so the message doesn't
-        # slip through as "Low" risk.
+        # Guard 5 (v4) – Financial + dynamic_urgency reinforcement
+        # WHY: Explicit dynamic time pressure ("within 24 hours",
+        # "by tomorrow") combined with financial data requests is a
+        # hallmark of corporate invoice fraud and vendor payment scams.
+        # This guard is intentionally separate from Guard 4 to ensure
+        # it cannot be bypassed if Guard 4's urgency detection fails
+        # for edge cases.  Both guards enforce the same floor (60).
+        has_dynamic_urgency = "dynamic_urgency" in cats
+        if has_financial and has_dynamic_urgency:
+            final = max(final, 60.0)
+
+        # Guard 6 – AI dominance override (v3)
         if ai_probability > 0.75 and rule_score < 20:
             if final < 45:
                 final = 45.0
                 ai_dominant_escalation = True
 
-        # Guard 6 – Critical override (OTP + suspicious URL)
+        # Guard 7 – Critical override (OTP + suspicious URL)
+        # This is the highest-priority override and is applied LAST
+        # so nothing downstream can reduce it.
         if has_otp and has_suspicious_url:
             final = max(final, 90.0)
 

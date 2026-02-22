@@ -3,10 +3,10 @@ education_engine.py
 --------------------
 Maps detected scam categories to contextual safety tips.
 
-ENHANCEMENT v3 (HARDENING):
-  - Added financial_data_request safety tips
-  - Added dynamic_urgency safety tips
-  - Added Financial Pressure psychological category tips
+ENHANCEMENT v4 (FINANCIAL HARDENING):
+  - Expanded financial_data_request tips with corporate/vendor advice
+  - Added Financial Coercion psychological category tips
+  - Increased max_tips from 8 to 10
 """
 
 from __future__ import annotations
@@ -86,9 +86,7 @@ SAFETY_TIPS: dict[str, list[str]] = {
         "for example, a shared memory or a pet's name.",
     ],
 
-    # -----------------------------------------------------------------------
-    # NEW v3: Financial data request / refund phishing
-    # -----------------------------------------------------------------------
+    # v3 + v4: Financial data request / refund phishing / corporate fraud
     "financial_data_request": [
         "Legitimate companies process refunds automatically — they never ask "
         "you to 'confirm account details' to receive a refund.",
@@ -101,9 +99,16 @@ SAFETY_TIPS: dict[str, list[str]] = {
         "If a message threatens 'account closure' unless you act, it is "
         "almost certainly a scam. Real services send multiple reminders "
         "through official channels.",
+        # v4 additions
+        "Do not update bank details via SMS or email links. Always call "
+        "the company's official billing department directly to verify.",
+        "Corporate fraud often targets finance teams with urgent payment "
+        "requests. Always verify invoice changes through a known contact.",
+        "Always verify invoice changes through a known contact channel "
+        "before processing any payment or wire transfer.",
     ],
 
-    # NEW v3: Dynamic urgency
+    # Dynamic urgency
     "dynamic_urgency": [
         "Messages with specific time deadlines ('within 6 hours', "
         "'before 5 PM') are designed to create panic. Genuine deadlines "
@@ -163,10 +168,6 @@ SAFETY_TIPS: dict[str, list[str]] = {
         "If someone claims to be a relative in an emergency, ask them a "
         "question only that person would know the answer to.",
     ],
-
-    # -----------------------------------------------------------------------
-    # NEW v3: Financial Pressure (psychological category)
-    # -----------------------------------------------------------------------
     "Financial Pressure": [
         "Messages suggesting you'll lose money (failed refund, billing issue) "
         "unless you act immediately are a hallmark of phishing scams.",
@@ -174,6 +175,23 @@ SAFETY_TIPS: dict[str, list[str]] = {
         "unsolicited messages about payments or refunds.",
         "If you're told a refund failed, check your bank statement directly. "
         "Do not rely on the message sender for financial information.",
+    ],
+
+    # ------------------------------------------------------------------
+    # NEW v4: Financial Coercion (psychological category)
+    # ------------------------------------------------------------------
+    "Financial Coercion": [
+        "Do not update bank details via SMS or email links. Call the "
+        "company's official billing department directly to verify.",
+        "Call the company's official billing department directly before "
+        "acting on any payment or invoice-related message.",
+        "Corporate fraud often targets finance teams with urgent payment "
+        "requests. Always verify through a known contact channel.",
+        "Always verify invoice changes through a known contact channel "
+        "before processing any wire transfer or payment update.",
+        "If a message claims your payment was rejected or an invoice is "
+        "overdue, verify independently through official channels before "
+        "sharing any financial information.",
     ],
 }
 
@@ -194,7 +212,7 @@ GENERAL_TIPS: list[str] = [
 
 def get_safety_tips(
     categories: list[str],
-    max_tips: int = 8,
+    max_tips: int = 10,
 ) -> list[str]:
     """
     Return contextual safety tips based on the detected scam *categories*.
@@ -205,6 +223,7 @@ def get_safety_tips(
         Category labels from rule_engine and/or psych_classifier.
     max_tips : int
         Maximum number of tips to return.
+        v4: increased from 8 to 10 to accommodate corporate fraud tips.
 
     Returns
     -------
