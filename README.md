@@ -1,3 +1,8 @@
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Backend](https://img.shields.io/badge/backend-FastAPI-green)
+![Frontend](https://img.shields.io/badge/frontend-Next.js-black)
+![AI](https://img.shields.io/badge/AI-BART--MNLI-orange)
+
 # SurakshaAI
 
 **Explainable Fraud Intelligence Engine for the Indian Digital Ecosystem**
