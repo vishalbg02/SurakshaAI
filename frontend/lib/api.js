@@ -35,7 +35,7 @@ async function request(path, options = {}) {
     // Network errors (backend down, CORS, etc.)
     if (err.name === "TypeError" && err.message.includes("fetch")) {
       throw new Error(
-        "Cannot reach the backend. Make sure the server is running on http://localhost:8000"
+        "Cannot reach the backend. Make sure the server is running on http://34.131.123.111"
       );
     }
     throw err;
