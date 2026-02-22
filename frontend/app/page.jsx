@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+
+/* ═══════════════════════════════════════════════════════════
+   EXISTING HIGHLIGHT LOGIC (unchanged)
+   ═══════════════════════════════════════════════════════════ */
 
 const EXAMPLE_MSG = `Dear customer, your SBI account has been blocked due to KYC expiry. Click http://sbi-kyc-update.in to verify immediately or account will be permanently closed within 24 hours.`;
 
@@ -16,10 +20,8 @@ const HIGHLIGHTS = [
 ];
 
 function highlightText(msg, highlights) {
-  let result = msg;
   const parts = [];
-  let remaining = result;
-
+  let remaining = msg;
   highlights.forEach((h) => {
     const idx = remaining.indexOf(h.text);
     if (idx !== -1) {
@@ -31,6 +33,32 @@ function highlightText(msg, highlights) {
   if (remaining) parts.push({ text: remaining, type: "plain" });
   return parts;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   SCROLL FADE-IN HOOK
+   ═══════════════════════════════════════════════════════════ */
+
+function useScrollReveal() {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setVisible(true); },
+      { threshold: 0.15 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, visible];
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE
+   ═══════════════════════════════════════════════════════════ */
 
 export default function LandingPage() {
   const [m, setM] = useState(false);
@@ -45,9 +73,11 @@ export default function LandingPage() {
   const parts = highlightText(EXAMPLE_MSG, HIGHLIGHTS);
 
   return (
-    <div className="relative overflow-hidden">
-      {/* ===== HERO ===== */}
-      <section className="hero-bg relative min-h-[92vh] flex items-center">
+    <div className="relative">
+      {/* ═════════════════════════════════════════════════════
+          HERO (unchanged)
+          ═════════════════════════════════════════════════════ */}
+      <section className="hero-bg relative overflow-hidden min-h-[92vh] flex items-center">
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute top-16 left-[8%] w-80 h-80 bg-cx-accent/[0.04] rounded-full blur-3xl animate-float-a" />
           <div className="absolute bottom-24 right-[12%] w-96 h-96 bg-cx-violet/[0.04] rounded-full blur-3xl animate-float-b" />
@@ -56,7 +86,6 @@ export default function LandingPage() {
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-            {/* Left: Copy */}
             <div className={`transition-all duration-1000 ${m ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-cx-card/50 border border-cx-border/50 rounded-full text-[11px] text-cx-textSec mb-8 backdrop-blur-sm">
                 <span className="w-1.5 h-1.5 bg-risk-low rounded-full animate-pulse" />
@@ -82,21 +111,18 @@ export default function LandingPage() {
                 </a>
               </div>
 
-              {/* Trust strip */}
               <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                 {["100% Free", "No Sign-up", "No Tracking", "Runs Locally", "AI Optional"].map((t) => (
                   <span key={t} className="flex items-center gap-1.5 text-[11px] text-cx-textDim">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
                     {t}
                   </span>
                 ))}
               </div>
             </div>
 
-            {/* Right: Live preview */}
             <div className={`transition-all duration-1000 delay-300 ${m ? "opacity-100 translate-y-0" : "opacity-0 translate-y-12"}`}>
               <div className="bg-cx-surface border border-cx-border rounded-2xl p-5 shadow-2xl shadow-black/30 relative">
-                {/* Header bar */}
                 <div className="flex items-center gap-2 mb-4 pb-3 border-b border-cx-border">
                   <div className="flex gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-risk-crit/60" />
@@ -106,7 +132,6 @@ export default function LandingPage() {
                   <span className="text-[10px] text-cx-textGhost font-mono ml-2">fraud-analysis.preview</span>
                 </div>
 
-                {/* Message */}
                 <div className="bg-cx-base/60 rounded-xl p-4 mb-4 border border-cx-border/50">
                   <p className="text-[12px] leading-relaxed font-mono">
                     {parts.map((p, i) =>
@@ -129,7 +154,6 @@ export default function LandingPage() {
                   </p>
                 </div>
 
-                {/* Mini gauge */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="relative w-12 h-12">
@@ -162,7 +186,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ===== WHY PEOPLE FALL ===== */}
+      {/* ═════════════════════════════════════════════════════
+          WHY PEOPLE FALL (unchanged)
+          ═════════════════════════════════════════════════════ */}
       <section id="demo" className="py-28 px-4 sm:px-6 lg:px-8">
         <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-16 items-center">
@@ -193,7 +219,7 @@ export default function LandingPage() {
                 ].map((item, i) => (
                   <div key={i} className="flex items-center gap-4 bg-cx-base/50 rounded-xl px-4 py-3 border border-cx-border/40">
                     <span className="text-[12px] font-mono font-medium flex-1" style={{ color: item.color }}>
-                      "{item.phrase}"
+                      &quot;{item.phrase}&quot;
                     </span>
                     <span className="text-[10px] text-cx-textDim whitespace-nowrap px-2 py-0.5 bg-cx-card rounded border border-cx-border">
                       {item.tactic}
@@ -206,14 +232,15 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ===== HOW IT WORKS ===== */}
+      {/* ═════════════════════════════════════════════════════
+          HOW IT WORKS (unchanged)
+          ═════════════════════════════════════════════════════ */}
       <section className="py-28 px-4 sm:px-6 lg:px-8 bg-cx-deep">
         <div className="max-w-5xl mx-auto">
           <p className="text-center text-[11px] text-cx-accent font-semibold uppercase tracking-[0.2em] mb-3">Process</p>
           <h2 className="text-center text-3xl font-bold text-cx-text mb-20 tracking-tight">How it works</h2>
 
           <div className="relative">
-            {/* Timeline line */}
             <div className="hidden md:block absolute top-8 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cx-border to-transparent" />
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-12 md:gap-8">
@@ -224,7 +251,7 @@ export default function LandingPage() {
               ].map((step, i) => (
                 <div key={i} className="text-center relative">
                   <div className="w-16 h-16 bg-cx-card border border-cx-border rounded-2xl flex items-center justify-center mx-auto mb-5 relative z-10">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={step.icon}/></svg>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={step.icon} /></svg>
                   </div>
                   <span className="text-[10px] text-cx-accent font-mono font-bold">{step.num}</span>
                   <h3 className="text-sm font-bold text-cx-text mt-1 mb-2">{step.title}</h3>
@@ -236,7 +263,15 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ===== WHY SURAKSHA ===== */}
+      {/* ═════════════════════════════════════════════════════
+          NEW: SCAM SIMULATOR PREVIEW
+          Inserted after "How It Works", before "Why SurakshaAI"
+          ═════════════════════════════════════════════════════ */}
+      <SimulatorPreviewSection />
+
+      {/* ═════════════════════════════════════════════════════
+          WHY SURAKSHA (unchanged)
+          ═════════════════════════════════════════════════════ */}
       <section className="py-28 px-4 sm:px-6 lg:px-8">
         <div className="max-w-6xl mx-auto">
           <p className="text-[11px] text-cx-accent font-semibold uppercase tracking-[0.2em] mb-3">Capabilities</p>
@@ -261,7 +296,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ===== CTA ===== */}
+      {/* ═════════════════════════════════════════════════════
+          CTA (unchanged)
+          ═════════════════════════════════════════════════════ */}
       <section className="py-24 px-4 sm:px-6 lg:px-8 bg-cx-deep">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-3xl font-bold text-cx-text mb-4 tracking-tight">Ready to investigate?</h2>
@@ -272,7 +309,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* FOOTER */}
+      {/* FOOTER (unchanged) */}
       <footer className="border-t border-cx-border py-8 px-4 bg-cx-base">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <span className="text-[11px] text-cx-textGhost">SurakshaAI &copy; {new Date().getFullYear()}</span>
@@ -280,5 +317,249 @@ export default function LandingPage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SIMULATOR PREVIEW SECTION
+   Self-contained component with scroll-reveal animation,
+   chat mock, and animated risk meter.
+   ═══════════════════════════════════════════════════════════════ */
+
+function SimulatorPreviewSection() {
+  const [sectionRef, visible] = useScrollReveal();
+  const [animStep, setAnimStep] = useState(0);
+
+  // Cycle through simulated chat steps once visible
+  useEffect(() => {
+    if (!visible) return;
+    const timers = [];
+    timers.push(setTimeout(() => setAnimStep(1), 600));
+    timers.push(setTimeout(() => setAnimStep(2), 1400));
+    timers.push(setTimeout(() => setAnimStep(3), 2200));
+    return () => timers.forEach(clearTimeout);
+  }, [visible]);
+
+  const CHAT_STEPS = [
+    { msg: "Hi Dad, I lost my phone.", risk: 15, label: "Low" },
+    { msg: "This is my new number.", risk: 35, label: "Low" },
+    { msg: "I urgently need ₹10,000.", risk: 70, label: "High" },
+    { msg: "Please send now, I'll explain later.", risk: 85, label: "Critical" },
+  ];
+
+  const currentRisk = animStep < CHAT_STEPS.length ? CHAT_STEPS[animStep].risk : 85;
+
+  function riskColor(score) {
+    if (score <= 30) return "#10B981";
+    if (score <= 60) return "#F59E0B";
+    if (score <= 80) return "#F97316";
+    return "#EF4444";
+  }
+
+  const rc = riskColor(currentRisk);
+
+  return (
+    <section
+      ref={sectionRef}
+      className="py-28 px-4 sm:px-6 lg:px-8"
+    >
+      <div
+        className={`max-w-6xl mx-auto transition-all duration-1000 ${
+          visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
+        }`}
+      >
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+          {/* ── LEFT: Text content ── */}
+          <div>
+            <p className="text-[11px] text-cx-accent font-semibold uppercase tracking-[0.2em] mb-3">
+              Interactive Training
+            </p>
+            <h2 className="text-3xl font-bold text-cx-text leading-tight tracking-tight mb-5">
+              Experience the Scam<br />Simulation Lab
+            </h2>
+            <p className="text-sm text-cx-textSec leading-relaxed mb-8">
+              Step inside real-world fraud scenarios and see exactly how
+              manipulation escalates — before it reaches you.
+            </p>
+
+            {/* Bullet highlights */}
+            <ul className="space-y-3 mb-10">
+              {[
+                "Watch scams unfold step-by-step",
+                "See risk score escalate in real time",
+                "Understand emotional manipulation tactics",
+                "Identify the exact breaking point",
+                "Learn how to interrupt the fraud chain",
+              ].map((item, i) => (
+                <li
+                  key={i}
+                  className={`flex items-center gap-3 transition-all duration-500 ${
+                    visible ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
+                  }`}
+                  style={{ transitionDelay: `${400 + i * 120}ms` }}
+                >
+                  <span className="flex-shrink-0 w-5 h-5 bg-cx-accentGlow rounded-md flex items-center justify-center">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                  </span>
+                  <span className="text-[13px] text-cx-textSec">{item}</span>
+                </li>
+              ))}
+            </ul>
+
+            {/* CTA */}
+            <Link
+              href="/simulator"
+              className="inline-flex px-7 py-3.5 bg-cx-accent hover:bg-cx-accentHover text-white font-semibold rounded-xl text-sm transition-all btn-press shadow-lg shadow-cx-accent/20 hover:shadow-cx-accent/30"
+            >
+              Explore Simulator
+            </Link>
+
+            {/* Trust line */}
+            <p className="text-[10px] text-cx-textGhost mt-4">
+              No signup required. 100% free. Educational use. Works offline.
+            </p>
+          </div>
+
+          {/* ── RIGHT: Preview mock ── */}
+          <div
+            className={`transition-all duration-1000 delay-300 ${
+              visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+            }`}
+          >
+            <div className="bg-cx-surface border border-cx-border rounded-2xl shadow-2xl shadow-black/25 overflow-hidden">
+              {/* Mock header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-cx-border/60 bg-cx-card/30">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 bg-cx-card border border-cx-border rounded-full flex items-center justify-center">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold text-cx-text">Family Impersonation</p>
+                    <p className="text-[8px] text-cx-textGhost">Simulation Preview</p>
+                  </div>
+                </div>
+                <span className="text-[9px] font-mono text-cx-textGhost">
+                  {Math.min(animStep + 1, 4)}/4
+                </span>
+              </div>
+
+              {/* Two-column: chat + risk */}
+              <div className="grid grid-cols-5">
+                {/* Chat messages */}
+                <div className="col-span-3 p-4 space-y-2 border-r border-cx-border/40 min-h-[240px]">
+                  {CHAT_STEPS.map((step, i) => (
+                    <div
+                      key={i}
+                      className={`transition-all duration-500 ${
+                        i <= animStep
+                          ? "opacity-100 translate-y-0"
+                          : "opacity-0 translate-y-3 pointer-events-none"
+                      }`}
+                      style={{ transitionDelay: `${i * 100}ms` }}
+                    >
+                      <div className="bg-cx-card border border-cx-border rounded-xl rounded-bl-sm px-3 py-2 max-w-[90%]">
+                        <p className="text-[8px] font-semibold text-risk-crit mb-0.5">
+                          Scammer
+                        </p>
+                        <p className="text-[11px] text-cx-textSec leading-snug">
+                          {step.msg}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Typing dots (show when next step is about to appear) */}
+                  {animStep < 3 && (
+                    <div className="flex gap-1 px-3 py-2 animate-fade-in">
+                      <span className="w-1 h-1 bg-cx-textGhost rounded-full animate-bounce" style={{ animationDelay: "0s" }} />
+                      <span className="w-1 h-1 bg-cx-textGhost rounded-full animate-bounce" style={{ animationDelay: "0.15s" }} />
+                      <span className="w-1 h-1 bg-cx-textGhost rounded-full animate-bounce" style={{ animationDelay: "0.3s" }} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Risk meter */}
+                <div className="col-span-2 p-4 flex flex-col items-center justify-center gap-3">
+                  {/* Mini gauge */}
+                  <div className="relative w-16 h-16">
+                    <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                      <circle cx="50" cy="50" r="38" fill="none" stroke="#1E293B" strokeWidth="5" />
+                      <circle
+                        cx="50" cy="50" r="38" fill="none"
+                        stroke={rc}
+                        strokeWidth="5" strokeLinecap="round"
+                        strokeDasharray={239}
+                        strokeDashoffset={239 * (1 - currentRisk / 100)}
+                        style={{
+                          transition: "stroke-dashoffset 0.8s ease-out, stroke 0.5s ease",
+                          filter: `drop-shadow(0 0 4px ${rc}40)`,
+                        }}
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span
+                        className="text-sm font-black tabular-nums transition-colors duration-500"
+                        style={{ color: rc }}
+                      >
+                        {currentRisk}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Risk label */}
+                  <span
+                    className="text-[9px] font-bold px-2 py-0.5 rounded-full transition-all duration-500"
+                    style={{
+                      backgroundColor: `${rc}12`,
+                      color: rc,
+                    }}
+                  >
+                    {CHAT_STEPS[Math.min(animStep, 3)].label}
+                  </span>
+
+                  {/* Rising tactic badges */}
+                  <div className="space-y-1 w-full">
+                    {["Emotional", "Urgency", "Financial"].map((tactic, i) => (
+                      <div
+                        key={tactic}
+                        className={`text-center transition-all duration-500 ${
+                          animStep >= i + 1
+                            ? "opacity-100 translate-y-0"
+                            : "opacity-0 translate-y-1"
+                        }`}
+                        style={{ transitionDelay: `${i * 200}ms` }}
+                      >
+                        <span className="text-[8px] px-1.5 py-0.5 bg-cx-violetGlow text-cx-violet border border-cx-violet/10 rounded text-center">
+                          {tactic}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom bar */}
+              <div className="px-4 py-2.5 border-t border-cx-border/40 bg-cx-card/20 flex items-center justify-between">
+                <span className="text-[9px] text-cx-textGhost">
+                  {animStep >= 3
+                    ? "Simulation complete"
+                    : "Watching manipulation escalate..."}
+                </span>
+                <Link
+                  href="/simulator"
+                  className="text-[9px] font-semibold text-cx-accent hover:text-cx-accentHover transition-colors"
+                >
+                  Open full lab →
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
