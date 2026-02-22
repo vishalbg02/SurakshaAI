@@ -3,14 +3,10 @@ profile_adapter.py
 -------------------
 Adjusts fraud-detection emphasis based on the user's risk profile.
 
-Supported profiles
-------------------
-- student        – more susceptible to reward scams and urgency
-- elderly        – more susceptible to fear, authority, and OTP scams
-- business_owner – more susceptible to authority impersonation and KYC scams
-
-Each profile defines *multipliers* for scam categories.  Categories not
-listed in a profile keep a default multiplier of 1.0.
+ENHANCEMENT v3 (HARDENING):
+  - Added financial_data_request and dynamic_urgency multipliers
+  - Added Financial Pressure psychological category multipliers
+  - Elderly profile now has elevated sensitivity to financial scams
 """
 
 from __future__ import annotations
@@ -19,8 +15,6 @@ from typing import Any
 
 # ============================================================================
 # Profile multiplier maps
-# Keys = scam / psych category names (as returned by rule_engine / psych)
-# Values = float multiplier applied to the contribution of that category.
 # ============================================================================
 
 PROFILE_MULTIPLIERS: dict[str, dict[str, float]] = {
@@ -30,10 +24,13 @@ PROFILE_MULTIPLIERS: dict[str, dict[str, float]] = {
         "Reward": 1.4,
         "urgency": 1.3,
         "hindi_urgency": 1.3,
+        "dynamic_urgency": 1.3,
         "Urgency": 1.3,
         "otp": 1.2,
         "hindi_otp_personal": 1.2,
         "Scarcity": 1.2,
+        "financial_data_request": 1.1,
+        "Financial Pressure": 1.1,
     },
     "elderly": {
         "fear": 1.5,
@@ -46,6 +43,11 @@ PROFILE_MULTIPLIERS: dict[str, dict[str, float]] = {
         "hindi_otp_personal": 1.6,
         "personal_data": 1.4,
         "call_transcript": 1.3,
+        # v3: Elderly are disproportionately targeted by refund phishing
+        "financial_data_request": 1.5,
+        "dynamic_urgency": 1.3,
+        "Financial Pressure": 1.5,
+        "Emotional Manipulation": 1.4,
     },
     "business_owner": {
         "authority_impersonation": 1.4,
@@ -57,10 +59,13 @@ PROFILE_MULTIPLIERS: dict[str, dict[str, float]] = {
         "fear": 1.2,
         "hindi_fear": 1.2,
         "Fear": 1.2,
+        # v3: Business owners targeted by payment/billing scams
+        "financial_data_request": 1.4,
+        "dynamic_urgency": 1.2,
+        "Financial Pressure": 1.3,
     },
 }
 
-# Default multiplier for categories not listed in a profile
 _DEFAULT_MULTIPLIER: float = 1.0
 
 
@@ -93,12 +98,11 @@ def apply_profile_adjustment(
         adjusted_rule_score  – int (0-100)
         adjusted_psych_score – int (0-100)
         profile_used         – str
-        multipliers_applied  – dict[str, float]  (for transparency)
+        multipliers_applied  – dict[str, float]
     """
     multipliers = PROFILE_MULTIPLIERS.get(profile, {})
 
     if not multipliers:
-        # Unknown or "general" profile → no adjustment
         return {
             "adjusted_rule_score": score_data.get("rule_score", 0),
             "adjusted_psych_score": score_data.get("psych_score", 0),
@@ -106,7 +110,6 @@ def apply_profile_adjustment(
             "multipliers_applied": {},
         }
 
-    # --- Compute combined multiplier from matched categories -----------------
     all_categories: list[str] = (
         score_data.get("rule_categories", [])
         + score_data.get("psych_categories", [])
@@ -123,10 +126,8 @@ def apply_profile_adjustment(
         if cat in multipliers:
             applied[cat] = m
 
-    # Average multiplier (fallback to 1.0 if no categories)
     avg_multiplier = (combined_multiplier / count) if count > 0 else 1.0
 
-    # Apply to scores
     adjusted_rule = int(min(score_data.get("rule_score", 0) * avg_multiplier, 100))
     adjusted_psych = int(min(score_data.get("psych_score", 0) * avg_multiplier, 100))
 

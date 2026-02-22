@@ -1,14 +1,12 @@
 """
 education_engine.py
 --------------------
-Maps detected scam categories to contextual safety tips and educational
-advice.  The tips are intended to be surfaced to the end-user alongside
-the analysis results so they can learn to recognise similar scams in the
-future.
+Maps detected scam categories to contextual safety tips.
 
-ENHANCEMENT v2:
-  - Added social_impersonation safety tips
-  - Added Emotional Manipulation psychological category tips
+ENHANCEMENT v3 (HARDENING):
+  - Added financial_data_request safety tips
+  - Added dynamic_urgency safety tips
+  - Added Financial Pressure psychological category tips
 """
 
 from __future__ import annotations
@@ -16,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 # ============================================================================
-# Safety-tip database – keyed by scam / psychological category
+# Safety-tip database
 # ============================================================================
 
 SAFETY_TIPS: dict[str, list[str]] = {
@@ -74,9 +72,7 @@ SAFETY_TIPS: dict[str, list[str]] = {
         "legitimate caller will understand if you call back.",
     ],
 
-    # -----------------------------------------------------------------------
-    # NEW v2: Social / family impersonation
-    # -----------------------------------------------------------------------
+    # v2: Social impersonation
     "social_impersonation": [
         "Always verify new numbers by calling the old saved contact directly. "
         "Do not rely on the new number for confirmation.",
@@ -88,6 +84,32 @@ SAFETY_TIPS: dict[str, list[str]] = {
         "member will understand if you take a moment to confirm.",
         "Ask a personal verification question only the real person would know — "
         "for example, a shared memory or a pet's name.",
+    ],
+
+    # -----------------------------------------------------------------------
+    # NEW v3: Financial data request / refund phishing
+    # -----------------------------------------------------------------------
+    "financial_data_request": [
+        "Legitimate companies process refunds automatically — they never ask "
+        "you to 'confirm account details' to receive a refund.",
+        "If you receive a message about a failed payment or billing issue, "
+        "log into the service directly (not via a link) to check.",
+        "Refund phishing scams often create urgency ('within 6 hours') to "
+        "pressure you into sharing banking details. Take your time.",
+        "Never update payment methods through links in emails or messages. "
+        "Go to the official website or app instead.",
+        "If a message threatens 'account closure' unless you act, it is "
+        "almost certainly a scam. Real services send multiple reminders "
+        "through official channels.",
+    ],
+
+    # NEW v3: Dynamic urgency
+    "dynamic_urgency": [
+        "Messages with specific time deadlines ('within 6 hours', "
+        "'before 5 PM') are designed to create panic. Genuine deadlines "
+        "are communicated through official channels.",
+        "If a message gives you a short window to act, step back and verify "
+        "independently. Scammers use artificial time pressure.",
     ],
 
     # Hindi / Hinglish categories
@@ -133,10 +155,6 @@ SAFETY_TIPS: dict[str, list[str]] = {
         "Scarcity messaging ('limited time!') is a pressure tactic. "
         "Genuine offers don't expire in minutes.",
     ],
-
-    # -----------------------------------------------------------------------
-    # NEW v2: Emotional Manipulation (psychological category)
-    # -----------------------------------------------------------------------
     "Emotional Manipulation": [
         "Be wary of messages from unknown numbers claiming to be a family "
         "member. Verify by calling their known number.",
@@ -144,6 +162,18 @@ SAFETY_TIPS: dict[str, list[str]] = {
         "verify before sending money or sharing information.",
         "If someone claims to be a relative in an emergency, ask them a "
         "question only that person would know the answer to.",
+    ],
+
+    # -----------------------------------------------------------------------
+    # NEW v3: Financial Pressure (psychological category)
+    # -----------------------------------------------------------------------
+    "Financial Pressure": [
+        "Messages suggesting you'll lose money (failed refund, billing issue) "
+        "unless you act immediately are a hallmark of phishing scams.",
+        "Never click links or provide financial details in response to "
+        "unsolicited messages about payments or refunds.",
+        "If you're told a refund failed, check your bank statement directly. "
+        "Do not rely on the message sender for financial information.",
     ],
 }
 
@@ -174,15 +204,14 @@ def get_safety_tips(
     categories : list[str]
         Category labels from rule_engine and/or psych_classifier.
     max_tips : int
-        Maximum number of tips to return (to keep the response concise).
-        Increased from 6 to 8 in v2 to accommodate social impersonation tips.
+        Maximum number of tips to return.
 
     Returns
     -------
     list[str]
     """
     tips: list[str] = []
-    seen: set[str] = set()  # avoid duplicates
+    seen: set[str] = set()
 
     for cat in categories:
         for tip in SAFETY_TIPS.get(cat, []):
@@ -190,9 +219,7 @@ def get_safety_tips(
                 tips.append(tip)
                 seen.add(tip)
 
-    # If we found nothing specific, return general advice
     if not tips:
         tips = list(GENERAL_TIPS)
 
-    # Trim to max
     return tips[:max_tips]
