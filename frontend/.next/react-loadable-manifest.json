@@ -1,8 +1,12 @@
 {
-  "app\\dashboard\\page.jsx -> @/components/TrendDashboard": {
-    "id": "app\\dashboard\\page.jsx -> @/components/TrendDashboard",
+  "app\\analyzer\\page.jsx -> @/lib/api": {
+    "id": "app\\analyzer\\page.jsx -> @/lib/api",
+    "files": []
+  },
+  "app\\dashboard\\page.jsx -> @/components/TrendCharts": {
+    "id": "app\\dashboard\\page.jsx -> @/components/TrendCharts",
     "files": [
-      "static/chunks/_app-pages-browser_components_TrendDashboard_jsx.js"
+      "static/chunks/_app-pages-browser_components_TrendCharts_jsx.js"
     ]
   }
 }

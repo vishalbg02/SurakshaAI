@@ -1,369 +1,223 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { analyzeMessage, analyzeBatch } from "@/lib/api";
+import Link from "next/link";
+import { useState, useEffect } from "react";
 
-import MessageInput from "@/components/MessageInput";
-import VoiceInputButton from "@/components/VoiceInputButton";
-import ProfileSelector from "@/components/ProfileSelector";
-import RiskGauge from "@/components/RiskGauge";
-import ConfidenceMeter from "@/components/ConfidenceMeter";
-import HighlightedText from "@/components/HighlightedText";
-import PsychBadge from "@/components/PsychBadge";
-import SafetyTips from "@/components/SafetyTips";
-import ShareExport from "@/components/ShareExport";
-import ScamSimulator from "@/components/ScamSimulator";
-import LoadingSpinner from "@/components/LoadingSpinner";
-
-export default function AnalyzerPage() {
-  const [message, setMessage] = useState("");
-  const [profile, setProfile] = useState("general");
-  const [aiEnabled, setAiEnabled] = useState(true);
-  const [isBatchMode, setIsBatchMode] = useState(false);
-
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [result, setResult] = useState(null);
-  const [batchResults, setBatchResults] = useState(null);
-  const [selectedBatchIndex, setSelectedBatchIndex] = useState(0);
-
-  // Collapsible states
-  const [showMessageBreakdown, setShowMessageBreakdown] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-
-  const handleTranscript = useCallback((transcript) => {
-    setMessage((prev) => {
-      const separator = prev.trim() ? " " : "";
-      return prev + separator + transcript;
-    });
-  }, []);
-
-  const handleSubmit = async (text) => {
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    setBatchResults(null);
-    setSelectedBatchIndex(0);
-
-    try {
-      // BATCH FIX: Only use batch if toggle is explicitly ON.
-      // Never auto-detect based on newlines.
-      if (isBatchMode) {
-        const response = await analyzeBatch(text, profile, aiEnabled);
-        setBatchResults(response.results);
-      } else {
-        const response = await analyzeMessage(text, profile, aiEnabled);
-        setResult(response.data);
-      }
-    } catch (err) {
-      console.error("Analysis error:", err);
-      setError(err.message || "An unexpected error occurred.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const displayResult = batchResults
-    ? batchResults[selectedBatchIndex]
-    : result;
-
-  const allCategories = displayResult
-    ? [
-        ...(displayResult.rule_analysis?.categories || []),
-        ...(displayResult.psych_analysis?.categories || []),
-      ].filter((v, i, a) => a.indexOf(v) === i)
-    : [];
+export default function LandingPage() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Header */}
-      <section>
-        <h1 className="text-2xl font-bold text-gov-navy">
-          Analyze Suspicious Communication
-        </h1>
-        <p className="text-sm text-gov-muted mt-1 max-w-2xl">
-          Paste a suspicious SMS, WhatsApp message, or call transcript below.
-          The system uses rule-based detection, AI semantic analysis, and
-          psychological profiling to assess fraud risk.
-        </p>
-      </section>
+    <div className="relative">
+      {/* HERO */}
+      <section className="hero-gradient relative overflow-hidden min-h-[90vh] flex items-center">
+        {/* Floating shapes */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-20 left-[10%] w-72 h-72 bg-sb-accent/5 rounded-full blur-3xl animate-float" />
+          <div className="absolute bottom-20 right-[15%] w-96 h-96 bg-purple-500/5 rounded-full blur-3xl animate-float-delayed" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-500/3 rounded-full blur-3xl" />
+          {/* Grid overlay */}
+          <div className="absolute inset-0 opacity-[0.03]" style={{
+            backgroundImage: "linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)",
+            backgroundSize: "60px 60px",
+          }} />
+        </div>
 
-      {/* Input Section */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-3">
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <MessageInput
-                value={message}
-                onChange={setMessage}
-                onSubmit={handleSubmit}
-                disabled={loading}
-                isBatchMode={isBatchMode}
-                onBatchToggle={setIsBatchMode}
-              />
-            </div>
+        <div className={`relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center transition-all duration-1000 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-sb-card/60 border border-sb-border/50 rounded-full text-xs text-sb-textSecondary mb-8 backdrop-blur-sm">
+            <span className="w-1.5 h-1.5 bg-risk-low rounded-full animate-pulse" />
+            100% Free &middot; No Signup &middot; No Tracking
           </div>
-          <VoiceInputButton onTranscript={handleTranscript} disabled={loading} />
-        </div>
 
-        <div>
-          <ProfileSelector
-            profile={profile}
-            onSelect={setProfile}
-            aiEnabled={aiEnabled}
-            onAiToggle={setAiEnabled}
-          />
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black text-sb-text leading-[1.05] tracking-tight mb-6">
+            Stop Digital Fraud<br />
+            <span className="bg-gradient-to-r from-sb-accent via-blue-400 to-purple-400 bg-clip-text text-transparent">
+              Before It Stops You
+            </span>
+          </h1>
+
+          <p className="text-base sm:text-lg text-sb-textSecondary max-w-2xl mx-auto mb-10 leading-relaxed">
+            Explainable AI + Rule-Based Detection for SMS, WhatsApp &amp; Call Scams.
+            Understand exactly why a message is dangerous.
+          </p>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link
+              href="/analyzer"
+              className="px-8 py-3.5 bg-sb-accent hover:bg-sb-accentHover text-white font-semibold rounded-xl text-sm transition-all btn-press shadow-lg shadow-sb-accent/25 hover:shadow-sb-accent/40"
+            >
+              Analyze a Message
+            </Link>
+            <Link
+              href="/dashboard"
+              className="px-8 py-3.5 bg-sb-card hover:bg-sb-hover border border-sb-border text-sb-text font-semibold rounded-xl text-sm transition-all btn-press"
+            >
+              View Live Dashboard
+            </Link>
+          </div>
         </div>
       </section>
 
-      {/* Loading */}
-      {loading && <LoadingSpinner message="Analyzing message..." />}
+      {/* PROBLEM */}
+      <section className="py-24 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-center text-sb-textSecondary text-sm uppercase tracking-[0.2em] mb-4 font-medium">The Problem</p>
+          <h2 className="text-center text-2xl sm:text-3xl font-bold text-sb-text mb-4 tracking-tight">
+            Scams exploit urgency, authority, and trust
+          </h2>
+          <p className="text-center text-sb-textSecondary max-w-xl mx-auto mb-16 text-sm leading-relaxed">
+            Most people react emotionally. SurakshaAI exposes the manipulation before you do.
+          </p>
 
-      {/* Error */}
-      {error && (
-        <div className="bg-white border border-risk-critical/30 rounded-lg p-5">
-          <p className="text-sm text-risk-critical font-medium">{error}</p>
-          <button
-            onClick={() => setError(null)}
-            className="mt-2 text-xs text-risk-critical underline"
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <ThreatCard
+              icon={<ClockIcon />}
+              title="Urgency"
+              desc="Time pressure forces impulsive action. &quot;Act within 24 hours or lose access.&quot;"
+            />
+            <ThreatCard
+              icon={<ShieldIcon />}
+              title="Authority"
+              desc="Impersonating banks, police, or government agencies to bypass skepticism."
+            />
+            <ThreatCard
+              icon={<HeartIcon />}
+              title="Emotional Exploitation"
+              desc="Family impersonation, fear tactics, and financial pressure to override logic."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* HOW IT WORKS */}
+      <section className="py-24 px-4 sm:px-6 lg:px-8 bg-sb-surface">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-center text-sb-textSecondary text-sm uppercase tracking-[0.2em] mb-4 font-medium">How It Works</p>
+          <h2 className="text-center text-2xl sm:text-3xl font-bold text-sb-text mb-16 tracking-tight">
+            Three steps to clarity
+          </h2>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-0 relative">
+            {/* Connector lines */}
+            <div className="hidden sm:block absolute top-12 left-[calc(33.33%+0.5rem)] right-[calc(33.33%+0.5rem)] h-px bg-gradient-to-r from-sb-border via-sb-accent/30 to-sb-border" />
+
+            <StepCard num="01" title="Paste Message" desc="SMS, WhatsApp, email, or call transcript. Supports English, Hindi, and Hinglish." />
+            <StepCard num="02" title="Dual-Engine Analysis" desc="Rule-based keyword detection + BART AI model analyze simultaneously." />
+            <StepCard num="03" title="Explainable Assessment" desc="See exactly which phrases triggered, what tactics were used, and how to stay safe." />
+          </div>
+        </div>
+      </section>
+
+      {/* DIFFERENTIATORS */}
+      <section className="py-24 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-center text-sb-textSecondary text-sm uppercase tracking-[0.2em] mb-4 font-medium">Why SurakshaAI</p>
+          <h2 className="text-center text-2xl sm:text-3xl font-bold text-sb-text mb-16 tracking-tight">
+            Built different
+          </h2>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <FeatureCard title="Works Without AI" desc="Rule engine operates independently. AI enhances, never gates." />
+            <FeatureCard title="Phrase-Level Explainability" desc="Every flagged word is highlighted with its exact category." />
+            <FeatureCard title="Social Impersonation Detection" desc="Catches &quot;Hi Dad, lost my phone&quot; family impersonation scams." />
+            <FeatureCard title="Psychological Profiling" desc="Detects fear, urgency, authority, and emotional manipulation tactics." />
+            <FeatureCard title="Offline-Capable Architecture" desc="Rule engine and database work without internet. AI is optional." />
+            <FeatureCard title="Completely Free" desc="No signup, no tracking, no external API calls. Your data stays local." />
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="py-24 px-4 sm:px-6 lg:px-8 bg-sb-surface">
+        <div className="max-w-2xl mx-auto text-center">
+          <h2 className="text-2xl sm:text-3xl font-bold text-sb-text mb-4 tracking-tight">
+            Ready to analyze?
+          </h2>
+          <p className="text-sb-textSecondary mb-8 text-sm">
+            Paste any suspicious message and get an instant, explainable risk assessment.
+          </p>
+          <Link
+            href="/analyzer"
+            className="inline-flex px-8 py-3.5 bg-sb-accent hover:bg-sb-accentHover text-white font-semibold rounded-xl text-sm transition-all btn-press shadow-lg shadow-sb-accent/25"
           >
-            Dismiss
-          </button>
+            Open Analyzer
+          </Link>
         </div>
-      )}
+      </section>
 
-      {/* Batch selector */}
-      {batchResults && batchResults.length > 0 && (
-        <section className="bg-white border border-gov-border rounded-lg p-4">
-          <p className="text-xs font-semibold text-gov-text uppercase tracking-wider mb-3">
-            Batch Results — {batchResults.length} messages
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {batchResults.map((r, i) => {
-              const level = r?.final_assessment?.risk_level || "Unknown";
-              const score = r?.final_assessment?.final_score ?? "?";
-              const hasError = !!r?.error;
-              const riskBorder = {
-                Low: "border-risk-low",
-                Medium: "border-risk-medium",
-                High: "border-risk-high",
-                Critical: "border-risk-critical",
-              };
-
-              return (
-                <button
-                  key={i}
-                  onClick={() => setSelectedBatchIndex(i)}
-                  className={`px-3 py-2 rounded text-xs font-medium border transition-all ${
-                    selectedBatchIndex === i ? "ring-2 ring-gov-accent ring-offset-1" : ""
-                  } ${
-                    hasError
-                      ? "border-risk-critical/30 text-risk-critical bg-risk-critical/5"
-                      : `${riskBorder[level] || "border-gov-border"} bg-white text-gov-text`
-                  }`}
-                >
-                  #{i + 1} {hasError ? "Error" : `${level} (${score})`}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* RESULTS */}
-      {displayResult && !displayResult.error && (
-        <div className="space-y-6">
-          {/* 1. Risk-First Card */}
-          <RiskGauge
-            score={displayResult.final_assessment.final_score}
-            riskLevel={displayResult.final_assessment.risk_level}
-            categories={allCategories}
-          />
-
-          {/* 2. Safety Recommendations */}
-          {displayResult.safety_tips?.length > 0 && (
-            <div className="bg-white border border-gov-border rounded-lg p-5">
-              <h3 className="text-xs font-semibold text-gov-text uppercase tracking-wider mb-4">
-                Safety Recommendations
-              </h3>
-              <ul className="space-y-2">
-                {displayResult.safety_tips.map((tip, i) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gov-navy/10 text-gov-navy text-[10px] font-bold flex items-center justify-center mt-0.5">
-                      {i + 1}
-                    </span>
-                    <p className="text-sm text-gov-text leading-relaxed">{tip}</p>
-                  </li>
-                ))}
-              </ul>
+      {/* FOOTER */}
+      <footer className="border-t border-sb-border py-8 px-4">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 bg-sb-accent rounded flex items-center justify-center">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
             </div>
-          )}
-
-          {/* 3. Message Breakdown (Collapsible) */}
-          <div className="bg-white border border-gov-border rounded-lg">
-            <button
-              onClick={() => setShowMessageBreakdown(!showMessageBreakdown)}
-              className="w-full px-5 py-4 flex items-center justify-between text-left"
-            >
-              <h3 className="text-xs font-semibold text-gov-text uppercase tracking-wider">
-                Message Breakdown
-              </h3>
-              <span className="text-gov-muted text-xs">
-                {showMessageBreakdown ? "Collapse" : "Expand"}
-              </span>
-            </button>
-            {showMessageBreakdown && (
-              <div className="px-5 pb-5 space-y-4">
-                <HighlightedText
-                  text={displayResult.message}
-                  highlights={displayResult.highlights}
-                />
-                {/* Psych categories */}
-                {displayResult.psych_analysis.categories.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-gov-text uppercase tracking-wider">
-                      Psychological Tactics Detected
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {displayResult.psych_analysis.categories.map((cat) => (
-                        <span
-                          key={cat}
-                          className="text-xs font-medium px-3 py-1 rounded bg-gov-navy/5 text-gov-navy border border-gov-navy/10"
-                        >
-                          {cat}
-                        </span>
-                      ))}
-                    </div>
-                    <p className="text-xs text-gov-muted leading-relaxed">
-                      {displayResult.psych_analysis.explanation}
-                    </p>
-                  </div>
-                )}
-                {/* URL Analysis */}
-                {displayResult.rule_analysis.url_analysis.suspicious_urls.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-gov-text uppercase tracking-wider">
-                      Suspicious URLs
-                    </p>
-                    {displayResult.rule_analysis.url_analysis.suspicious_urls.map((url, i) => (
-                      <div
-                        key={i}
-                        className="bg-risk-critical/5 border border-risk-critical/10 rounded px-3 py-2"
-                      >
-                        <span className="text-xs text-risk-critical font-mono break-all">
-                          {url}
-                        </span>
-                      </div>
-                    ))}
-                    {displayResult.rule_analysis.url_analysis.reasons.map((reason, i) => (
-                      <p key={i} className="text-xs text-gov-muted">
-                        — {reason}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            <span className="text-xs text-sb-textMuted">SurakshaAI &copy; {new Date().getFullYear()}</span>
           </div>
-
-          {/* 4. Advanced Technical Details (Collapsible) */}
-          <div className="bg-white border border-gov-border rounded-lg">
-            <button
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full px-5 py-4 flex items-center justify-between text-left"
-            >
-              <h3 className="text-xs font-semibold text-gov-text uppercase tracking-wider">
-                Advanced Analysis
-              </h3>
-              <span className="text-gov-muted text-xs">
-                {showAdvanced ? "Collapse" : "Expand"}
-              </span>
-            </button>
-            {showAdvanced && (
-              <div className="px-5 pb-5 space-y-4">
-                {/* Confidence meter */}
-                <ConfidenceMeter
-                  ruleScore={displayResult.rule_analysis.score}
-                  aiProbability={displayResult.ai_analysis.probability}
-                  aiEnabled={displayResult.ai_analysis.enabled}
-                  agreementLevel={displayResult.final_assessment.agreement_level}
-                />
-
-                {/* Score details table */}
-                <div className="bg-gray-50 border border-gov-border rounded-lg p-4">
-                  <p className="text-xs font-semibold text-gov-text uppercase tracking-wider mb-3">
-                    Score Details
-                  </p>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <DetailRow label="Rule Score (adjusted)" value={displayResult.rule_analysis.score} />
-                    <DetailRow label="Rule Score (original)" value={displayResult.rule_analysis.original_score} />
-                    <DetailRow label="Psych Score (adjusted)" value={displayResult.psych_analysis.score} />
-                    <DetailRow label="Psych Score (original)" value={displayResult.psych_analysis.original_score} />
-                    <DetailRow label="AI Probability" value={`${(displayResult.ai_analysis.probability * 100).toFixed(1)}%`} />
-                    <DetailRow label="AI Confidence" value={`${(displayResult.ai_analysis.confidence * 100).toFixed(1)}%`} />
-                    <DetailRow label="AI Label" value={displayResult.ai_analysis.label} />
-                    <DetailRow label="Profile Used" value={displayResult.profile_adjustment.profile_used} />
-                  </div>
-
-                  {/* Flags */}
-                  <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gov-border">
-                    <FlagBadge label="OTP" active={displayResult.rule_analysis.flags.has_otp} />
-                    <FlagBadge label="Suspicious URL" active={displayResult.rule_analysis.flags.has_suspicious_url} />
-                    <FlagBadge label="Money Request" active={displayResult.rule_analysis.flags.has_money_request} />
-                    {displayResult.rule_analysis.flags.has_financial_request !== undefined && (
-                      <FlagBadge label="Financial Request" active={displayResult.rule_analysis.flags.has_financial_request} />
-                    )}
-                    {displayResult.rule_analysis.flags.has_dynamic_urgency !== undefined && (
-                      <FlagBadge label="Dynamic Urgency" active={displayResult.rule_analysis.flags.has_dynamic_urgency} />
-                    )}
-                  </div>
-                </div>
-
-                {/* Export */}
-                <div className="flex items-center justify-between pt-2">
-                  <ShareExport analysisId={displayResult.id} />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Batch error */}
-      {displayResult && displayResult.error && (
-        <div className="bg-white border border-risk-critical/20 rounded-lg p-5">
-          <p className="text-sm text-risk-critical font-medium">
-            Analysis failed for this message
+          <p className="text-xs text-sb-textMuted">
+            Explainable Multilingual Fraud Intelligence Engine
           </p>
-          <p className="text-xs text-gov-muted mt-1">{displayResult.error}</p>
         </div>
-      )}
-
-      {/* Scam Simulator */}
-      <ScamSimulator />
+      </footer>
     </div>
   );
 }
 
-function DetailRow({ label, value }) {
+function ThreatCard({ icon, title, desc }) {
   return (
-    <>
-      <span className="text-gov-muted">{label}</span>
-      <span className="text-gov-text font-mono text-right">{value}</span>
-    </>
+    <div className="bg-sb-card border border-sb-border rounded-2xl p-6 card-hover">
+      <div className="w-10 h-10 bg-sb-accent/10 rounded-xl flex items-center justify-center mb-4 text-sb-accent">
+        {icon}
+      </div>
+      <h3 className="text-sm font-semibold text-sb-text mb-2">{title}</h3>
+      <p className="text-xs text-sb-textSecondary leading-relaxed">{desc}</p>
+    </div>
   );
 }
 
-function FlagBadge({ label, active }) {
+function StepCard({ num, title, desc }) {
   return (
-    <span
-      className={`text-[10px] px-2 py-0.5 rounded font-medium ${
-        active
-          ? "bg-risk-critical/10 text-risk-critical"
-          : "bg-gray-100 text-gray-400"
-      }`}
-    >
-      {label}: {active ? "Detected" : "None"}
-    </span>
+    <div className="text-center px-6 py-4">
+      <div className="w-10 h-10 bg-sb-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
+        <span className="text-xs font-bold text-sb-accent font-mono">{num}</span>
+      </div>
+      <h3 className="text-sm font-semibold text-sb-text mb-2">{title}</h3>
+      <p className="text-xs text-sb-textSecondary leading-relaxed">{desc}</p>
+    </div>
+  );
+}
+
+function FeatureCard({ title, desc }) {
+  return (
+    <div className="bg-sb-card border border-sb-border rounded-2xl p-5 card-hover group cursor-default">
+      <h3 className="text-sm font-semibold text-sb-text mb-1.5 group-hover:text-sb-accent transition-colors">{title}</h3>
+      <p className="text-xs text-sb-textSecondary leading-relaxed">{desc}</p>
+    </div>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
+function ShieldIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+  );
+}
+
+function HeartIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+    </svg>
   );
 }

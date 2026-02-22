@@ -1,14 +1,10 @@
 "use client";
 
-/**
- * LoadingSpinner
- * Clean, minimal loading indicator for government style.
- */
-export default function LoadingSpinner({ message = "Analyzing..." }) {
+export default function LoadingSpinner({ message = "Loading..." }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 gap-3">
-      <div className="w-10 h-10 border-3 border-gray-200 border-t-gov-navy rounded-full animate-spin" />
-      <p className="text-sm text-gov-muted">{message}</p>
+      <div className="w-8 h-8 border-2 border-sb-border border-t-sb-accent rounded-full animate-spin" />
+      <p className="text-sm text-sb-textMuted">{message}</p>
     </div>
   );
 }
