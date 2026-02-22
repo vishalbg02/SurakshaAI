@@ -6,7 +6,7 @@
  * messages so the calling component can display them.
  */
 
-const BASE_URL = "http://localhost:8000";
+const BASE_URL = "http://34.131.123.111";
 
 /**
  * Generic fetch wrapper with error handling.
