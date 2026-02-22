@@ -6,7 +6,7 @@
  * messages so the calling component can display them.
  */
 
-const BASE_URL = "http://34.131.123.111";
+const BASE_URL = "https://34.131.123.111.nip.io";
 
 /**
  * Generic fetch wrapper with error handling.
@@ -75,7 +75,7 @@ export async function analyzeBatch(messages, profile = "general", ai_enabled = t
 }
 
 /**
- * GET /trends – retrieve aggregate analytics.
+ * GET /trends – retrieve-aggregate analytics.
  *
  * @returns {Promise<object>}
  */
