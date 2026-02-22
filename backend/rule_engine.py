@@ -8,8 +8,16 @@ Detection is case-insensitive.
 
 Delegates URL scanning to url_scanner.py.
 
+ENHANCEMENT v2:
+  - Added social_impersonation category (weight 20)
+  - Added family keyword + money request compound detection
+  - Added secondary boost rule (social_impersonation + urgency = +10)
+  - Added has_money_request flag
+  - Improved scoring realism for compound scam patterns
+
 Returns a normalised score (0-100), matched phrases with categories,
-and boolean flags for OTP presence and suspicious URL detection.
+and boolean flags for OTP presence, suspicious URL detection,
+and money request detection.
 """
 
 from __future__ import annotations
@@ -164,10 +172,49 @@ SCAM_KEYWORDS: dict[str, tuple[int, list[str]]] = {
     ),
 }
 
-# Maximum possible raw score if EVERY phrase in EVERY category matched.
-# We use a softer normalisation: score = (raw / _NORMALISATION_DIVISOR) * 100
-# capped at 100.  The divisor is tuned so that hitting 3-4 categories
-# comfortably pushes the score into the 60-90 range.
+# ============================================================================
+# SOCIAL IMPERSONATION – compound detection keywords
+# These are NOT added to SCAM_KEYWORDS because detection requires
+# compound logic (family + money, or new_number + urgency).
+# ============================================================================
+
+FAMILY_KEYWORDS: list[str] = [
+    "hi dad", "hi mom", "hi mummy", "hi papa",
+    "dad,", "mom,", "hey dad", "hey mom",
+    "hello dad", "hello mom", "papa,", "mummy,",
+    "hi papa", "hi mummy",
+]
+
+NEW_NUMBER_KEYWORDS: list[str] = [
+    "this is my new number", "lost my phone", "new phone",
+    "new whatsapp number", "my old number stopped working",
+    "changed my number", "new sim", "got a new phone",
+    "old phone broken", "phone got stolen",
+]
+
+MONEY_REQUEST_KEYWORDS: list[str] = [
+    "send", "transfer", "need", "please send",
+    "urgent help", "emergency", "send 10", "send rs",
+    "send ₹", "google pay", "phonepe", "paytm",
+    "bank transfer", "upi", "gpay", "send money",
+    "lend me", "need money", "pay for me",
+    "bhej do", "paise bhejo", "paise chahiye",
+    "transfer karo", "send karo",
+]
+
+URGENCY_KEYWORDS_FOR_COMPOUND: list[str] = [
+    "urgent", "urgently", "immediately", "right now",
+    "asap", "quickly", "fast", "hurry",
+    "turant", "abhi", "jaldi", "foran",
+    "emergency",
+]
+
+SOCIAL_IMPERSONATION_WEIGHT: int = 20
+SOCIAL_URGENCY_BOOST: int = 10
+
+# Maximum possible raw score normalisation divisor.
+# Tuned so that hitting 3-4 categories comfortably pushes
+# the score into the 60-90 range.
 _NORMALISATION_DIVISOR: int = 60
 
 
@@ -177,7 +224,7 @@ _NORMALISATION_DIVISOR: int = 60
 
 def _detect_keywords(text: str) -> tuple[int, list[str], list[dict[str, str]]]:
     """
-    Scan *text* against every category and return:
+    Scan *text* against every category in SCAM_KEYWORDS and return:
       raw_score, matched_categories, matched_phrases_list
     """
     text_lower = text.lower()
@@ -195,6 +242,81 @@ def _detect_keywords(text: str) -> tuple[int, list[str], list[dict[str, str]]]:
                 )
 
     return raw_score, sorted(categories_seen), matched_phrases
+
+
+def _detect_social_impersonation(
+    text: str,
+    existing_categories: list[str],
+) -> tuple[int, bool, list[dict[str, str]]]:
+    """
+    Compound detection for social/family impersonation scams.
+
+    Detection triggers if ANY of:
+      1. family_keyword AND money_request_keyword found
+      2. new_number_keyword AND urgency_keyword found
+      3. money_request_keyword AND urgency_keyword found
+
+    Returns:
+      bonus_score  – int to add to raw_score
+      has_money_request – bool flag
+      extra_matched_phrases – list of matched phrase dicts
+    """
+    text_lower = text.lower()
+
+    # Check each keyword group
+    found_family: list[str] = [kw for kw in FAMILY_KEYWORDS if kw.lower() in text_lower]
+    found_new_number: list[str] = [kw for kw in NEW_NUMBER_KEYWORDS if kw.lower() in text_lower]
+    found_money: list[str] = [kw for kw in MONEY_REQUEST_KEYWORDS if kw.lower() in text_lower]
+    found_urgency: list[str] = [kw for kw in URGENCY_KEYWORDS_FOR_COMPOUND if kw.lower() in text_lower]
+
+    has_money_request = len(found_money) > 0
+    bonus_score: int = 0
+    extra_phrases: list[dict[str, str]] = []
+    triggered = False
+
+    # Compound condition 1: family + money
+    if found_family and found_money:
+        triggered = True
+        for kw in found_family:
+            extra_phrases.append({"phrase": kw, "category": "social_impersonation"})
+        for kw in found_money:
+            extra_phrases.append({"phrase": kw, "category": "social_impersonation"})
+
+    # Compound condition 2: new_number + urgency
+    if found_new_number and found_urgency:
+        triggered = True
+        for kw in found_new_number:
+            extra_phrases.append({"phrase": kw, "category": "social_impersonation"})
+        for kw in found_urgency:
+            # Only add if not already added by another category
+            if not any(p["phrase"] == kw and p["category"] == "social_impersonation" for p in extra_phrases):
+                extra_phrases.append({"phrase": kw, "category": "social_impersonation"})
+
+    # Compound condition 3: money + urgency
+    if found_money and found_urgency:
+        triggered = True
+        for kw in found_money:
+            if not any(p["phrase"] == kw and p["category"] == "social_impersonation" for p in extra_phrases):
+                extra_phrases.append({"phrase": kw, "category": "social_impersonation"})
+        for kw in found_urgency:
+            if not any(p["phrase"] == kw and p["category"] == "social_impersonation" for p in extra_phrases):
+                extra_phrases.append({"phrase": kw, "category": "social_impersonation"})
+
+    if triggered:
+        bonus_score += SOCIAL_IMPERSONATION_WEIGHT
+
+    # --- Secondary boost: social_impersonation + urgency ---
+    # If social impersonation was triggered AND urgency is present
+    # (either from SCAM_KEYWORDS urgency category or compound detection),
+    # apply an additional +10 boost.
+    urgency_in_existing = any(
+        cat in existing_categories
+        for cat in ("urgency", "hindi_urgency")
+    )
+    if triggered and (urgency_in_existing or found_urgency):
+        bonus_score += SOCIAL_URGENCY_BOOST
+
+    return bonus_score, has_money_request, extra_phrases
 
 
 def _has_otp_request(matched_categories: list[str]) -> bool:
@@ -219,10 +341,20 @@ def analyze(text: str) -> dict[str, Any]:
         matched_phrases    – list[dict] each with 'phrase' and 'category'
         flags.has_otp      – bool
         flags.has_suspicious_url – bool
+        flags.has_money_request  – bool  (NEW in v2)
         url_analysis       – full output from url_scanner
     """
     # --- keyword detection ---------------------------------------------------
     raw_score, categories, matched_phrases = _detect_keywords(text)
+
+    # --- social impersonation compound detection (NEW) -----------------------
+    social_bonus, has_money_request, social_phrases = _detect_social_impersonation(
+        text, categories
+    )
+    raw_score += social_bonus
+    matched_phrases.extend(social_phrases)
+    if social_bonus > 0:
+        categories = sorted(set(categories) | {"social_impersonation"})
 
     # --- URL scanning --------------------------------------------------------
     url_result = scan_urls(text)
@@ -247,6 +379,47 @@ def analyze(text: str) -> dict[str, Any]:
         "flags": {
             "has_otp": has_otp,
             "has_suspicious_url": has_suspicious_url,
+            "has_money_request": has_money_request,
         },
         "url_analysis": url_result,
     }
+
+
+# ============================================================================
+# TEST CASES (comment block – not runtime code)
+# ============================================================================
+#
+# Example messages and expected categories:
+#
+# 1. Social impersonation + urgency:
+#    "Hi Dad I lost my phone send 10000 urgently"
+#    → Expected: social_impersonation + urgency
+#    → has_money_request: True
+#    → Score: High (social weight 20 + urgency 12 + boost 10 = 42 raw → ~70)
+#
+# 2. Authority + fear + KYC:
+#    "Your SBI account blocked due to KYC expiry click link to verify"
+#    → Expected: authority_impersonation + fear + kyc_scam
+#    → has_money_request: False
+#
+# 3. Reward scam:
+#    "Congratulations you won 500 reward points"
+#    → Expected: reward_scam
+#    → has_money_request: False
+#
+# 4. WhatsApp impersonation:
+#    "Hi mom this is my new number. My old number stopped working.
+#     Can you please send Rs 5000 on Google Pay? Need it urgently."
+#    → Expected: social_impersonation + urgency
+#    → has_money_request: True
+#    → Score: Very High (family + new_number + money + urgency all trigger)
+#
+# 5. Legitimate message:
+#    "Your Amazon order #402-1234567 has been shipped."
+#    → Expected: no categories
+#    → Score: 0 (Low)
+#
+# 6. Hindi social impersonation:
+#    "Papa mera phone kho gaya hai. Jaldi paise bhejo Google Pay pe."
+#    → Expected: social_impersonation + hindi_urgency
+#    → has_money_request: True

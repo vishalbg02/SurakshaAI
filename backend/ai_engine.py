@@ -8,6 +8,10 @@ The model and tokenizer are loaded **once** at module import time so that
 subsequent calls to `analyze_text()` are fast.
 
 Runs on CPU only – no GPU required.
+
+ENHANCEMENT v2:
+  - Improved fallback label from "unknown" to "ai_unavailable"
+  - Clearer error distinction between model-not-loaded and inference-failure
 """
 
 from __future__ import annotations
@@ -68,12 +72,15 @@ def analyze_text(text: str) -> dict[str, Any]:
         label       – str   the winning label
     """
     # Fallback when the model could not be loaded
+    # ENHANCED v2: Use "ai_unavailable" instead of "unknown" for clarity.
+    # This tells the frontend and workflow that the AI engine is not
+    # operational, distinct from a low-confidence "legitimate" result.
     if not _model_loaded or _classifier is None:
         logger.warning("AI model not available – returning neutral result.")
         return {
             "probability": 0.0,
             "confidence": 0.0,
-            "label": "unknown",
+            "label": "ai_unavailable",
         }
 
     try:
@@ -95,7 +102,7 @@ def analyze_text(text: str) -> dict[str, Any]:
 
         # Overall confidence = the top score regardless of label
         top_score: float = max(scores) if scores else 0.0
-        top_label: str = labels[0] if labels else "unknown"
+        top_label: str = labels[0] if labels else "ai_unavailable"
 
         return {
             "probability": round(fraud_prob, 4),
@@ -104,9 +111,11 @@ def analyze_text(text: str) -> dict[str, Any]:
         }
 
     except Exception as exc:
+        # ENHANCED v2: Distinct "ai_error" label so the system can
+        # differentiate between "model not loaded" and "inference crashed".
         logger.error("AI analysis failed: %s", exc)
         return {
             "probability": 0.0,
             "confidence": 0.0,
-            "label": "error",
+            "label": "ai_error",
         }

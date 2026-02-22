@@ -5,6 +5,10 @@ Maps detected scam categories to contextual safety tips and educational
 advice.  The tips are intended to be surfaced to the end-user alongside
 the analysis results so they can learn to recognise similar scams in the
 future.
+
+ENHANCEMENT v2:
+  - Added social_impersonation safety tips
+  - Added Emotional Manipulation psychological category tips
 """
 
 from __future__ import annotations
@@ -70,6 +74,22 @@ SAFETY_TIPS: dict[str, list[str]] = {
         "legitimate caller will understand if you call back.",
     ],
 
+    # -----------------------------------------------------------------------
+    # NEW v2: Social / family impersonation
+    # -----------------------------------------------------------------------
+    "social_impersonation": [
+        "Always verify new numbers by calling the old saved contact directly. "
+        "Do not rely on the new number for confirmation.",
+        "Do not transfer money without confirming identity through a known "
+        "channel — call, video chat, or in person.",
+        "Family impersonation scams are extremely common on WhatsApp and SMS. "
+        "Scammers often say 'I lost my phone' or 'this is my new number'.",
+        "Scammers create urgency to prevent you from verifying. A real family "
+        "member will understand if you take a moment to confirm.",
+        "Ask a personal verification question only the real person would know — "
+        "for example, a shared memory or a pet's name.",
+    ],
+
     # Hindi / Hinglish categories
     "hindi_urgency": [
         "Agar koi message 'turant' ya 'abhi' karne ko kahe, toh pehle "
@@ -113,6 +133,18 @@ SAFETY_TIPS: dict[str, list[str]] = {
         "Scarcity messaging ('limited time!') is a pressure tactic. "
         "Genuine offers don't expire in minutes.",
     ],
+
+    # -----------------------------------------------------------------------
+    # NEW v2: Emotional Manipulation (psychological category)
+    # -----------------------------------------------------------------------
+    "Emotional Manipulation": [
+        "Be wary of messages from unknown numbers claiming to be a family "
+        "member. Verify by calling their known number.",
+        "Emotional manipulation exploits trust and love. Take a breath and "
+        "verify before sending money or sharing information.",
+        "If someone claims to be a relative in an emergency, ask them a "
+        "question only that person would know the answer to.",
+    ],
 }
 
 # Fallback tip when no specific category matched
@@ -132,7 +164,7 @@ GENERAL_TIPS: list[str] = [
 
 def get_safety_tips(
     categories: list[str],
-    max_tips: int = 6,
+    max_tips: int = 8,
 ) -> list[str]:
     """
     Return contextual safety tips based on the detected scam *categories*.
@@ -143,6 +175,7 @@ def get_safety_tips(
         Category labels from rule_engine and/or psych_classifier.
     max_tips : int
         Maximum number of tips to return (to keep the response concise).
+        Increased from 6 to 8 in v2 to accommodate social impersonation tips.
 
     Returns
     -------

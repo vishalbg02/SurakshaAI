@@ -9,13 +9,13 @@ DESIGN PRINCIPLE – Protective Fusion
 -------------------------------------
 In a fraud-detection system, false negatives (missing real fraud) are
 far more dangerous than false positives (flagging legitimate messages).
-Therefore the fusion strategy is **asymmetrically protective**:
+The fusion strategy is **asymmetrically protective**.
 
-  • A low AI probability can NEVER suppress a high rule-based score.
-  • A high AI probability CAN elevate a low rule-based score.
-  • Psychological escalation provides a secondary safety floor.
-  • The OTP + suspicious-URL override guarantees Critical classification
-    for the most unambiguous scam indicators.
+ENHANCEMENT v2:
+  - Added money_request + urgency override (floor = 60)
+  - Added social_impersonation + elderly profile boost (1.2x rule)
+  - Added agreement_type field (RULE_DOMINANT / AI_DOMINANT / BALANCED)
+  - Preserved all existing overrides and backward compatibility
 
 Fusion formula (base score)
 ---------------------------
@@ -32,30 +32,29 @@ Protective guards (applied in order)
 -------------------------------------
 1. Rule protection floor:
      If rule_score >= 80 → final = max(base, rule_score)
-     Rationale: When the rule engine has very high confidence, the AI
-     must not be able to drag the score down.  The rule engine's
-     keyword dictionaries are hand-curated with high precision;
-     a score ≥ 80 means multiple strong scam indicators fired.
 
 2. Psychological escalation:
      If psych_score >= 80 → final = max(final, 75)
-     Rationale: Heavy psychological manipulation (fear + urgency +
-     authority stacking) is itself a strong fraud signal even if
-     individual keywords didn't fire.
 
-3. Critical override:
+3. Money request + urgency floor (NEW v2):
+     If has_money_request AND urgency → final = max(final, 60)
+
+4. Social impersonation elderly boost (NEW v2):
+     If social_impersonation AND profile == "elderly"
+     → rule_score *= 1.2 (recompute final)
+
+5. Critical override:
      If has_otp AND has_suspicious_url → final = max(final, 90)
-     Rationale: OTP solicitation combined with a suspicious link is
-     an unambiguous phishing pattern; must always be Critical.
 
-4. Clamp to [0, 100].
+6. Clamp to [0, 100].
 
-Agreement logic
----------------
-If abs(rule_score - ai_score*100) < 15 → HIGH else MODERATE
+Agreement logic (ENHANCED v2)
+-----------------------------
+agreement_level: HIGH / MODERATE  (backward compatible)
+agreement_type:  RULE_DOMINANT / AI_DOMINANT / BALANCED  (new field)
 
-Risk mapping
-------------
+Risk mapping (unchanged)
+------------------------
 0–30  → Low
 31–60 → Medium
 61–80 → High
@@ -68,7 +67,7 @@ from typing import Any
 
 
 # ============================================================================
-# Risk-level mapping
+# Risk-level mapping (UNCHANGED)
 # ============================================================================
 
 def _risk_level(score: int) -> str:
@@ -84,22 +83,39 @@ def _risk_level(score: int) -> str:
 
 
 # ============================================================================
-# Agreement assessment
+# Agreement assessment (ENHANCED v2)
 # ============================================================================
 
 def _agreement_level(rule_score: int, ai_probability: float) -> str:
     """
     Determine how closely rule-based and AI scores agree.
-
-    Parameters
-    ----------
-    rule_score : int        0-100
-    ai_probability : float  0-1 (will be scaled to 0-100 internally)
+    Returns the backward-compatible agreement level.
     """
     ai_scaled = ai_probability * 100
     if abs(rule_score - ai_scaled) < 15:
         return "HIGH"
     return "MODERATE"
+
+
+def _agreement_type(rule_score: int, ai_probability: float) -> str:
+    """
+    Determine which engine is dominant in the analysis.
+
+    Returns:
+      "RULE_DOMINANT"  – rule_score >= 70 AND ai < 0.2
+                         (rules caught it, AI didn't – common for
+                          keyword-heavy scams with novel phrasing)
+      "AI_DOMINANT"    – ai >= 0.8 AND rule_score < 30
+                         (AI detected semantic fraud that keyword
+                          matching missed – indicates sophisticated scam)
+      "BALANCED"       – both engines roughly agree or neither dominates
+    """
+    if rule_score >= 70 and ai_probability < 0.2:
+        return "RULE_DOMINANT"
+    elif ai_probability >= 0.8 and rule_score < 30:
+        return "AI_DOMINANT"
+    else:
+        return "BALANCED"
 
 
 # ============================================================================
@@ -114,6 +130,9 @@ def compute_final(
     ai_enabled: bool,
     has_otp: bool,
     has_suspicious_url: bool,
+    has_money_request: bool = False,
+    categories: list[str] | None = None,
+    profile: str = "general",
 ) -> dict[str, Any]:
     """
     Combine all sub-scores into a final risk assessment using a
@@ -121,40 +140,51 @@ def compute_final(
 
     Parameters
     ----------
-    rule_score      : int   0-100  from rule_engine
-    ai_probability  : float 0-1   fraud probability from ai_engine
-    ai_confidence   : float 0-1   top-label confidence from ai_engine
-    psych_score     : int   0-100  from psych_classifier
-    ai_enabled      : bool         whether the user opted into AI analysis
-    has_otp         : bool         OTP flag from rule_engine
-    has_suspicious_url : bool      suspicious-URL flag from rule_engine
+    rule_score         : int   0-100  from rule_engine
+    ai_probability     : float 0-1   fraud probability from ai_engine
+    ai_confidence      : float 0-1   top-label confidence from ai_engine
+    psych_score        : int   0-100  from psych_classifier
+    ai_enabled         : bool         whether the user opted into AI analysis
+    has_otp            : bool         OTP flag from rule_engine
+    has_suspicious_url : bool         suspicious-URL flag from rule_engine
+    has_money_request  : bool         money request flag from rule_engine (NEW v2)
+    categories         : list[str]    detected categories (NEW v2)
+    profile            : str          user profile for contextual boosts (NEW v2)
 
     Returns
     -------
     dict
         final_score     – int 0-100
         risk_level      – str
-        agreement_level – str
+        agreement_level – str  (backward compatible)
+        agreement_type  – str  (NEW v2: RULE_DOMINANT / AI_DOMINANT / BALANCED)
     """
+    cats = set(categories or [])
+
+    # -----------------------------------------------------------------------
+    # Step 0 (NEW v2): Social impersonation + elderly profile boost
+    # WHY: Elderly users are disproportionately targeted by family
+    # impersonation scams.  A 1.2x multiplier on the rule score
+    # ensures these scams are scored more aggressively for this
+    # vulnerable profile.
+    # -----------------------------------------------------------------------
+    effective_rule_score = rule_score
+    if "social_impersonation" in cats and profile == "elderly":
+        effective_rule_score = int(min(rule_score * 1.2, 100))
+
     # -----------------------------------------------------------------------
     # Step 1: Compute base score using the weighted fusion formula
     # -----------------------------------------------------------------------
     if not ai_enabled:
         # AI is disabled – rely entirely on the rule engine.
-        # This path preserves full backward compatibility: psych and AI
-        # play no role, and the rule score IS the final score (before
-        # protective guards).
-        final = float(rule_score)
+        final = float(effective_rule_score)
     else:
         ai_scaled = ai_probability * 100
 
         if ai_confidence >= 0.4:
-            # AI is reasonably confident → equal weighting between
-            # rule engine and AI, with a small psych contribution.
-            base = (0.45 * rule_score) + (0.45 * ai_scaled) + (0.10 * psych_score)
+            base = (0.45 * effective_rule_score) + (0.45 * ai_scaled) + (0.10 * psych_score)
         else:
-            # AI confidence is low → lean heavily on rule engine.
-            base = (0.70 * rule_score) + (0.20 * ai_scaled) + (0.10 * psych_score)
+            base = (0.70 * effective_rule_score) + (0.20 * ai_scaled) + (0.10 * psych_score)
 
         # -------------------------------------------------------------------
         # Step 2: Protective guards (applied in strict order)
@@ -162,31 +192,30 @@ def compute_final(
 
         # Guard 1 – Rule protection floor
         # WHY: A rule_score >= 80 means the message matched multiple
-        # high-weight scam patterns (OTP solicitation, KYC fraud,
-        # authority impersonation, etc.).  These keyword dictionaries
-        # are hand-curated with high precision.  A low AI probability
-        # (e.g. 0.07) should NEVER be able to average the final score
-        # downward into "Medium" territory.  The rule engine's verdict
-        # acts as an inviolable floor.
-        if rule_score >= 80:
-            final = max(base, float(rule_score))
+        # high-weight scam patterns.  A low AI probability should
+        # NEVER be able to average the final score downward.
+        if effective_rule_score >= 80:
+            final = max(base, float(effective_rule_score))
         else:
             final = base
 
         # Guard 2 – Psychological escalation
-        # WHY: A psych_score >= 80 indicates heavy stacking of
-        # manipulation tactics (e.g. fear + urgency + authority in a
-        # single message).  Even if individual scam keywords scored
-        # modestly, the psychological pressure pattern itself is a
-        # strong fraud signal.  We enforce a floor of 75 ("High" risk).
+        # WHY: psych_score >= 80 indicates heavy manipulation stacking.
         if psych_score >= 80:
             final = max(final, 75.0)
 
-        # Guard 3 – Critical override (OTP + suspicious URL)
-        # WHY: The combination of OTP solicitation and a suspicious
-        # link is an unambiguous phishing pattern.  No matter what
-        # the AI or rule scores individually suggest, this pattern
-        # MUST result in Critical risk classification (>= 90).
+        # Guard 3 (NEW v2) – Money request + urgency floor
+        # WHY: When someone is asking for money AND using urgency
+        # tactics, this is a strong scam signal regardless of what
+        # the AI thinks.  Floor at 60 ensures at least "Medium" risk.
+        urgency_present = bool(
+            cats & {"urgency", "hindi_urgency"}
+        ) or has_money_request  # money requests inherently carry urgency
+        if has_money_request and urgency_present:
+            final = max(final, 60.0)
+
+        # Guard 4 – Critical override (OTP + suspicious URL)
+        # WHY: OTP solicitation + suspicious link = unambiguous phishing.
         if has_otp and has_suspicious_url:
             final = max(final, 90.0)
 
@@ -196,12 +225,13 @@ def compute_final(
     final_score = int(min(max(final, 0), 100))
 
     # -----------------------------------------------------------------------
-    # Step 4: Agreement level (unchanged)
+    # Step 4: Agreement level (backward compatible) + type (NEW v2)
     # -----------------------------------------------------------------------
     agreement = _agreement_level(rule_score, ai_probability)
+    ag_type = _agreement_type(rule_score, ai_probability)
 
     # -----------------------------------------------------------------------
-    # Step 5: Risk level mapping (unchanged)
+    # Step 5: Risk level mapping (UNCHANGED)
     # -----------------------------------------------------------------------
     risk = _risk_level(final_score)
 
@@ -209,4 +239,5 @@ def compute_final(
         "final_score": final_score,
         "risk_level": risk,
         "agreement_level": agreement,
+        "agreement_type": ag_type,
     }

@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST="{}"
+self.__REACT_LOADABLE_MANIFEST="{\"app\\\\dashboard\\\\page.jsx -> @/components/TrendDashboard\":{\"id\":\"app\\\\dashboard\\\\page.jsx -> @/components/TrendDashboard\",\"files\":[\"static/chunks/_app-pages-browser_components_TrendDashboard_jsx.js\"]},\"components\\\\TrendDashboard.jsx -> recharts\":{\"id\":\"components\\\\TrendDashboard.jsx -> recharts\",\"files\":[\"static/chunks/_app-pages-browser_node_modules_recharts_es6_index_js.js\"]}}"

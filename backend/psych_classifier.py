@@ -5,11 +5,12 @@ Detects psychological manipulation tactics used in scam messages.
 
 Categories
 ----------
-- Fear        – threats of loss, legal action, account closure
-- Urgency     – time pressure, countdown, deadlines
-- Authority   – impersonation of banks, government, police
-- Reward      – promises of prizes, gifts, money
-- Scarcity    – limited availability, exclusive offers
+- Fear              – threats of loss, legal action, account closure
+- Urgency           – time pressure, countdown, deadlines
+- Authority         – impersonation of banks, government, police
+- Reward            – promises of prizes, gifts, money
+- Scarcity          – limited availability, exclusive offers
+- Emotional Manipulation (NEW v2) – family impersonation, trust exploitation
 
 Returns a psych_score (0-100) and human-readable explanation.
 """
@@ -91,11 +92,48 @@ PSYCH_TRIGGERS: dict[str, tuple[int, list[str]]] = {
             "ant mein", "khatam hone wala hai",
         ],
     ),
+
+    # ------------------------------------------------------------------
+    # NEW v2: Emotional Manipulation
+    # Detects attempts to exploit trust and familial bonds.
+    # Higher weight (20) because emotional manipulation targeting
+    # family relationships is one of the most effective scam tactics.
+    # ------------------------------------------------------------------
+    "Emotional Manipulation": (
+        20,
+        [
+            # Family impersonation triggers
+            "dad", "mom", "papa", "mummy",
+            "hi dad", "hi mom", "hi papa", "hi mummy",
+            # Trust exploitation
+            "lost phone", "lost my phone", "new number",
+            "new phone", "this is my new number",
+            "old number stopped working",
+            # Urgency-emotional blend
+            "help", "emergency", "urgently need",
+            "please help", "need your help",
+            "i'm in trouble", "stuck somewhere",
+            # Hindi/Hinglish emotional
+            "madad karo", "mushkil mein", "phone kho gaya",
+            "naya number", "meri madad karo",
+        ],
+    ),
 }
 
 # Normalisation divisor – tuned so that 2-3 categories with a handful of
 # hits reach a psych_score around 60-80.
 _NORMALISATION_DIVISOR: int = 50
+
+
+# ============================================================================
+# Emotional manipulation – specific explanation template
+# ============================================================================
+
+_EMOTIONAL_EXPLANATION = (
+    "This message attempts emotional manipulation by impersonating "
+    "a trusted contact and requesting urgent assistance. Scammers "
+    "exploit familial trust to bypass rational verification steps."
+)
 
 
 # ============================================================================
@@ -136,11 +174,20 @@ def classify(text: str) -> dict[str, Any]:
 
     # Build explanation
     if triggered_categories:
-        explanation = (
-            "This message employs psychological manipulation tactics. "
-            + "; ".join(detail_parts)
-            + "."
-        )
+        # If emotional manipulation was detected, prepend the specific explanation
+        if "Emotional Manipulation" in triggered_categories:
+            explanation = (
+                _EMOTIONAL_EXPLANATION + " "
+                + "Additional tactics detected: "
+                + "; ".join(detail_parts)
+                + "."
+            )
+        else:
+            explanation = (
+                "This message employs psychological manipulation tactics. "
+                + "; ".join(detail_parts)
+                + "."
+            )
     else:
         explanation = "No significant psychological manipulation tactics detected."
 

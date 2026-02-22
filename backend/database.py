@@ -9,6 +9,10 @@ Provides:
   - get_history()    – retrieve all past analyses (newest first)
   - get_trends()     – aggregate statistics for the dashboard
 
+ENHANCEMENT v2:
+  - Added has_money_request column (INTEGER DEFAULT 0)
+  - Backward-compatible ALTER TABLE migration for existing databases
+
 Uses plain sqlite3 – no ORM.
 """
 
@@ -39,7 +43,10 @@ def _get_connection() -> sqlite3.Connection:
 # ============================================================================
 
 def init_db() -> None:
-    """Create the analysis_results table if it does not already exist."""
+    """
+    Create the analysis_results table if it does not already exist.
+    Also applies backward-compatible migrations for new columns.
+    """
     conn = _get_connection()
     try:
         conn.execute(
@@ -55,13 +62,46 @@ def init_db() -> None:
                 profile_used      TEXT    NOT NULL,
                 categories        TEXT    NOT NULL DEFAULT '[]',
                 psych_categories  TEXT    NOT NULL DEFAULT '[]',
+                has_money_request INTEGER NOT NULL DEFAULT 0,
                 timestamp         DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
         conn.commit()
+
+        # ---------------------------------------------------------------
+        # MIGRATION v2: Add has_money_request column if it doesn't exist.
+        # This handles the case where the table was created by v1 and
+        # the column is missing.  ALTER TABLE ADD COLUMN is safe in
+        # SQLite – it never deletes data.
+        # ---------------------------------------------------------------
+        _migrate_add_column(
+            conn,
+            table="analysis_results",
+            column="has_money_request",
+            col_type="INTEGER NOT NULL DEFAULT 0",
+        )
+
+        conn.commit()
     finally:
         conn.close()
+
+
+def _migrate_add_column(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    col_type: str,
+) -> None:
+    """
+    Safely add a column to an existing table if it doesn't exist.
+    Uses PRAGMA table_info to check existing columns.
+    """
+    cursor = conn.execute(f"PRAGMA table_info({table})")
+    existing_columns = {row["name"] for row in cursor.fetchall()}
+
+    if column not in existing_columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
 
 # ============================================================================
@@ -78,21 +118,23 @@ def save_analysis(
     profile_used: str,
     categories: list[str] | None = None,
     psych_categories: list[str] | None = None,
+    has_money_request: bool = False,
 ) -> int:
     """
     Persist a single analysis result and return the new row id.
 
     Parameters
     ----------
-    message        : original message text
-    rule_score     : 0-100
-    ai_score       : 0-1 (fraud probability)
-    psych_score    : 0-100
-    final_score    : 0-100
-    risk_level     : Low / Medium / High / Critical
-    profile_used   : student / elderly / business_owner / general
-    categories     : scam categories from rule engine
-    psych_categories : psychological categories
+    message           : original message text
+    rule_score        : 0-100
+    ai_score          : 0-1 (fraud probability)
+    psych_score       : 0-100
+    final_score       : 0-100
+    risk_level        : Low / Medium / High / Critical
+    profile_used      : student / elderly / business_owner / general
+    categories        : scam categories from rule engine
+    psych_categories  : psychological categories
+    has_money_request : whether a money request was detected (NEW v2)
 
     Returns
     -------
@@ -104,8 +146,9 @@ def save_analysis(
             """
             INSERT INTO analysis_results
                 (message, rule_score, ai_score, psych_score, final_score,
-                 risk_level, profile_used, categories, psych_categories)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 risk_level, profile_used, categories, psych_categories,
+                 has_money_request)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 message,
@@ -117,6 +160,7 @@ def save_analysis(
                 profile_used,
                 json.dumps(categories or []),
                 json.dumps(psych_categories or []),
+                1 if has_money_request else 0,
             ),
         )
         conn.commit()
@@ -132,8 +176,6 @@ def save_analysis(
 def get_history(limit: int = 100) -> list[dict[str, Any]]:
     """
     Retrieve the most recent *limit* analysis results, newest first.
-
-    Returns a list of dicts suitable for JSON serialisation.
     """
     conn = _get_connection()
     try:
@@ -141,7 +183,8 @@ def get_history(limit: int = 100) -> list[dict[str, Any]]:
             """
             SELECT id, message, rule_score, ai_score, psych_score,
                    final_score, risk_level, profile_used,
-                   categories, psych_categories, timestamp
+                   categories, psych_categories, has_money_request,
+                   timestamp
             FROM analysis_results
             ORDER BY timestamp DESC
             LIMIT ?
@@ -163,6 +206,7 @@ def get_history(limit: int = 100) -> list[dict[str, Any]]:
                     "profile_used": row["profile_used"],
                     "categories": json.loads(row["categories"]),
                     "psych_categories": json.loads(row["psych_categories"]),
+                    "has_money_request": bool(row["has_money_request"]),
                     "timestamp": row["timestamp"],
                 }
             )
@@ -179,7 +223,8 @@ def get_analysis_by_id(analysis_id: int) -> dict[str, Any] | None:
             """
             SELECT id, message, rule_score, ai_score, psych_score,
                    final_score, risk_level, profile_used,
-                   categories, psych_categories, timestamp
+                   categories, psych_categories, has_money_request,
+                   timestamp
             FROM analysis_results
             WHERE id = ?
             """,
@@ -200,6 +245,7 @@ def get_analysis_by_id(analysis_id: int) -> dict[str, Any] | None:
             "profile_used": row["profile_used"],
             "categories": json.loads(row["categories"]),
             "psych_categories": json.loads(row["psych_categories"]),
+            "has_money_request": bool(row["has_money_request"]),
             "timestamp": row["timestamp"],
         }
     finally:

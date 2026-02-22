@@ -5,6 +5,14 @@ SurakshaAI – Explainable Multilingual Fraud Intelligence Engine
 
 FastAPI application entry-point.
 
+ENHANCEMENT v2:
+  - Input sanitisation (whitespace normalisation, length limit)
+  - In-memory rate limiting (20 req/min per IP, no Redis)
+  - Passes new flags (has_money_request, categories, profile) to workflow
+  - Stores has_money_request in database
+  - Returns new agreement_type field from workflow
+  - All changes are backward compatible with existing frontend
+
 Endpoints
 ---------
 POST /analyze          – analyse a single message
@@ -15,7 +23,7 @@ GET  /report/{id}      – download a PDF report for a given analysis
 
 CORS is configured for http://localhost:3000 (frontend dev server).
 
-Sample test messages (paste into the /analyze body for quick testing):
+Sample test messages:
 
 English scam:
   "Dear customer, your SBI account has been blocked due to KYC expiry.
@@ -33,16 +41,23 @@ Legitimate:
 Borderline:
   "Congratulations! You've been selected for a customer feedback survey.
    Complete it to receive 500 reward points."
+
+Social impersonation (NEW v2):
+  "Hi Dad I lost my phone this is my new number. Please send Rs 10000
+   on Google Pay urgently. I need it for an emergency."
 """
 
 from __future__ import annotations
 
 import logging
+import re
+import time
+from collections import defaultdict
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 # ---- Internal modules -------------------------------------------------------
@@ -83,7 +98,7 @@ app = FastAPI(
         "detects scam SMS, WhatsApp messages, and call transcripts "
         "using rule-based + AI-based + psychological analysis."
     ),
-    version="1.0.0",
+    version="2.0.0",
 )
 
 # ---- CORS middleware ---------------------------------------------------------
@@ -94,6 +109,72 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============================================================================
+# Rate Limiting (in-memory, no Redis)
+# ============================================================================
+
+# Stores { ip_address: [timestamp1, timestamp2, ...] }
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_MAX_REQUESTS: int = 20
+RATE_LIMIT_WINDOW_SECONDS: float = 60.0
+
+
+def _check_rate_limit(client_ip: str) -> bool:
+    """
+    Check if *client_ip* has exceeded the rate limit.
+    Returns True if the request should be BLOCKED.
+
+    Cleans up expired timestamps on each check to prevent
+    memory leaks in long-running processes.
+    """
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW_SECONDS
+
+    # Remove expired entries
+    _rate_limit_store[client_ip] = [
+        ts for ts in _rate_limit_store[client_ip] if ts > window_start
+    ]
+
+    if len(_rate_limit_store[client_ip]) >= RATE_LIMIT_MAX_REQUESTS:
+        return True  # blocked
+
+    # Record this request
+    _rate_limit_store[client_ip].append(now)
+    return False  # allowed
+
+
+# ============================================================================
+# Input Sanitisation (NEW v2)
+# ============================================================================
+
+MAX_MESSAGE_LENGTH: int = 5000
+
+
+def _sanitize_message(text: str) -> str:
+    """
+    Clean up input text:
+      - Strip leading/trailing whitespace
+      - Normalise multiple spaces to single space
+      - Preserve newlines (needed for batch mode)
+    Raises ValueError if the result is empty or exceeds MAX_MESSAGE_LENGTH.
+    """
+    text = text.strip()
+
+    if not text:
+        raise ValueError("Message cannot be empty.")
+
+    if len(text) > MAX_MESSAGE_LENGTH:
+        raise ValueError(
+            f"Message exceeds maximum length of {MAX_MESSAGE_LENGTH} characters "
+            f"(received {len(text)})."
+        )
+
+    # Normalise multiple spaces (but preserve newlines for batch splitting)
+    text = re.sub(r"[^\S\n]+", " ", text)
+
+    return text
 
 
 # ============================================================================
@@ -155,10 +236,10 @@ def _run_analysis(
     2. AI semantic detection (ai_engine)  – optional
     3. Psychological classification (psych_classifier)
     4. Profile adjustment   (profile_adapter)
-    5. Score fusion          (workflow)
+    5. Score fusion          (workflow)  – now receives new flags
     6. Phrase highlighting   (phrase_highlighter)
     7. Safety tips           (education_engine)
-    8. Persist to database   (database)
+    8. Persist to database   (database)  – now stores has_money_request
 
     Returns a comprehensive result dict.
     """
@@ -169,6 +250,7 @@ def _run_analysis(
     matched_phrases: list[dict[str, str]] = rule_result["matched_phrases"]
     has_otp: bool = rule_result["flags"]["has_otp"]
     has_suspicious_url: bool = rule_result["flags"]["has_suspicious_url"]
+    has_money_request: bool = rule_result["flags"].get("has_money_request", False)
 
     # ----- Step 2: AI analysis (if enabled) -----------------------------------
     if ai_enabled and is_model_loaded():
@@ -195,7 +277,9 @@ def _run_analysis(
     adj_rule_score: int = adjusted["adjusted_rule_score"]
     adj_psych_score: int = adjusted["adjusted_psych_score"]
 
-    # ----- Step 5: Score fusion -----------------------------------------------
+    # ----- Step 5: Score fusion (ENHANCED v2) ---------------------------------
+    # Now passes has_money_request, categories, and profile for
+    # the new protective guards and contextual boosts.
     fusion = compute_final(
         rule_score=adj_rule_score,
         ai_probability=ai_probability,
@@ -204,10 +288,14 @@ def _run_analysis(
         ai_enabled=ai_enabled and is_model_loaded(),
         has_otp=has_otp,
         has_suspicious_url=has_suspicious_url,
+        has_money_request=has_money_request,
+        categories=rule_categories,
+        profile=profile,
     )
     final_score: int = fusion["final_score"]
     risk_level: str = fusion["risk_level"]
     agreement_level: str = fusion["agreement_level"]
+    agreement_type: str = fusion.get("agreement_type", "BALANCED")
 
     # ----- Step 6: Phrase highlighting ----------------------------------------
     highlights = highlight_phrases(message, matched_phrases)
@@ -216,7 +304,7 @@ def _run_analysis(
     all_categories = list(set(rule_categories + psych_categories))
     tips = get_safety_tips(all_categories)
 
-    # ----- Step 8: Persist to database ----------------------------------------
+    # ----- Step 8: Persist to database (ENHANCED v2) --------------------------
     analysis_id = save_analysis(
         message=message,
         rule_score=adj_rule_score,
@@ -227,9 +315,14 @@ def _run_analysis(
         profile_used=profile,
         categories=rule_categories,
         psych_categories=psych_categories,
+        has_money_request=has_money_request,
     )
 
     # ----- Assemble response --------------------------------------------------
+    # IMPORTANT: The response structure is fully backward compatible.
+    # The new agreement_type field is ADDITIVE – it does not replace
+    # agreement_level.  The frontend can safely ignore it if not yet
+    # implemented.
     return {
         "id": analysis_id,
         "message": message,
@@ -261,6 +354,7 @@ def _run_analysis(
             "final_score": final_score,
             "risk_level": risk_level,
             "agreement_level": agreement_level,
+            "agreement_type": agreement_type,
         },
         "highlights": highlights,
         "safety_tips": tips,
@@ -274,16 +368,33 @@ def _run_analysis(
 # ---------- POST /analyze ----------------------------------------------------
 
 @app.post("/analyze", summary="Analyse a single message for fraud indicators")
-def analyze_message(body: AnalyzeRequest) -> dict[str, Any]:
+async def analyze_message(body: AnalyzeRequest, request: Request) -> dict[str, Any]:
     """
     Accept a suspicious SMS / WhatsApp message / call transcript and
     return a comprehensive fraud analysis.
     """
-    logger.info("POST /analyze  profile=%s  ai=%s  len=%d",
-                body.profile, body.ai_enabled, len(body.message))
+    # --- Rate limiting (NEW v2) ---
+    client_ip = request.client.host if request.client else "unknown"
+    if _check_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Maximum 20 requests per minute.",
+        )
+
+    # --- Input sanitisation (NEW v2) ---
+    try:
+        sanitized_message = _sanitize_message(body.message)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+    logger.info(
+        "POST /analyze  profile=%s  ai=%s  len=%d  ip=%s",
+        body.profile, body.ai_enabled, len(sanitized_message), client_ip,
+    )
+
     try:
         result = _run_analysis(
-            message=body.message,
+            message=sanitized_message,
             profile=body.profile,
             ai_enabled=body.ai_enabled,
         )
@@ -296,22 +407,46 @@ def analyze_message(body: AnalyzeRequest) -> dict[str, Any]:
 # ---------- POST /analyze-batch ----------------------------------------------
 
 @app.post("/analyze-batch", summary="Analyse multiple messages (newline-separated)")
-def analyze_batch(body: BatchAnalyzeRequest) -> dict[str, Any]:
+async def analyze_batch(body: BatchAnalyzeRequest, request: Request) -> dict[str, Any]:
     """
     Accept multiple messages separated by newlines and return an array
     of analysis results.
     """
-    raw_messages = [m.strip() for m in body.messages.split("\n") if m.strip()]
+    # --- Rate limiting (NEW v2) ---
+    client_ip = request.client.host if request.client else "unknown"
+    if _check_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Maximum 20 requests per minute.",
+        )
+
+    # --- Input sanitisation (NEW v2) ---
+    try:
+        sanitized = _sanitize_message(body.messages)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+    raw_messages = [m.strip() for m in sanitized.split("\n") if m.strip()]
 
     if not raw_messages:
         raise HTTPException(status_code=400, detail="No messages provided.")
 
-    logger.info("POST /analyze-batch  count=%d  profile=%s  ai=%s",
-                len(raw_messages), body.profile, body.ai_enabled)
+    logger.info(
+        "POST /analyze-batch  count=%d  profile=%s  ai=%s  ip=%s",
+        len(raw_messages), body.profile, body.ai_enabled, client_ip,
+    )
 
     results: list[dict[str, Any]] = []
     for msg in raw_messages:
         try:
+            # Validate each individual message length
+            if len(msg) > MAX_MESSAGE_LENGTH:
+                results.append({
+                    "message": msg[:100] + "…",
+                    "error": f"Message exceeds {MAX_MESSAGE_LENGTH} character limit.",
+                })
+                continue
+
             result = _run_analysis(
                 message=msg,
                 profile=body.profile,
@@ -425,7 +560,7 @@ def health_check() -> dict[str, Any]:
         "status": "healthy",
         "ai_model_loaded": is_model_loaded(),
         "service": "SurakshaAI",
-        "version": "1.0.0",
+        "version": "2.0.0",
     }
 
 
