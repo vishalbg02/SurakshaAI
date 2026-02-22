@@ -2,15 +2,8 @@
 
 /**
  * ConfidenceMeter
- * ----------------
- * Visually compares rule-based vs AI scores and displays the
- * agreement level (HIGH or MODERATE).
- *
- * Props:
- *   ruleScore: number        – 0-100
- *   aiProbability: number    – 0-1
- *   aiEnabled: boolean
- *   agreementLevel: string   – "HIGH" | "MODERATE"
+ * Simplified score comparison for the Advanced Analysis section.
+ * Clean bars, no flashiness.
  */
 export default function ConfidenceMeter({
   ruleScore,
@@ -20,26 +13,21 @@ export default function ConfidenceMeter({
 }) {
   const aiScaled = Math.round(aiProbability * 100);
 
-  const agreementColor =
-    agreementLevel === "HIGH"
-      ? "text-green-400 bg-green-400/10 border-green-400/30"
-      : "text-yellow-400 bg-yellow-400/10 border-yellow-400/30";
-
   return (
-    <div className="bg-suraksha-card border border-suraksha-border rounded-xl p-5 space-y-4">
-      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+    <div className="bg-white border border-gov-border rounded-lg p-5 space-y-4">
+      <h3 className="text-xs font-semibold text-gov-text uppercase tracking-wider">
         Score Comparison
       </h3>
 
-      {/* Rule-based bar */}
+      {/* Rule bar */}
       <div>
-        <div className="flex justify-between text-xs text-gray-400 mb-1">
+        <div className="flex justify-between text-xs text-gov-muted mb-1">
           <span>Rule Engine</span>
           <span className="font-mono">{ruleScore}/100</span>
         </div>
-        <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
+        <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
           <div
-            className="h-full bg-blue-500 rounded-full transition-all duration-1000 ease-out"
+            className="h-full bg-gov-navy rounded-full transition-all duration-700 ease-out"
             style={{ width: `${ruleScore}%` }}
           />
         </div>
@@ -47,27 +35,29 @@ export default function ConfidenceMeter({
 
       {/* AI bar */}
       <div>
-        <div className="flex justify-between text-xs text-gray-400 mb-1">
+        <div className="flex justify-between text-xs text-gov-muted mb-1">
           <span>AI Model {!aiEnabled && "(disabled)"}</span>
-          <span className="font-mono">
-            {aiEnabled ? `${aiScaled}/100` : "—"}
-          </span>
+          <span className="font-mono">{aiEnabled ? `${aiScaled}/100` : "—"}</span>
         </div>
-        <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden">
+        <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all duration-1000 ease-out ${
-              aiEnabled ? "bg-purple-500" : "bg-gray-700"
+            className={`h-full rounded-full transition-all duration-700 ease-out ${
+              aiEnabled ? "bg-gov-accent" : "bg-gray-200"
             }`}
             style={{ width: aiEnabled ? `${aiScaled}%` : "0%" }}
           />
         </div>
       </div>
 
-      {/* Agreement badge */}
-      <div className="flex items-center justify-between pt-2 border-t border-suraksha-border">
-        <span className="text-xs text-gray-500">Agreement Level</span>
+      {/* Agreement */}
+      <div className="flex items-center justify-between pt-3 border-t border-gov-border">
+        <span className="text-xs text-gov-muted">Agreement</span>
         <span
-          className={`px-3 py-1 text-xs font-semibold rounded-full border ${agreementColor}`}
+          className={`px-3 py-1 text-xs font-medium rounded ${
+            agreementLevel === "HIGH"
+              ? "bg-risk-low/10 text-risk-low"
+              : "bg-risk-medium/10 text-risk-medium"
+          }`}
         >
           {agreementLevel}
         </span>

@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 /* ============================================================
-   SurakshaAI – Global Styles
+   SurakshaAI – Government Trust Style
+   Clean, calm, authoritative design system.
    ============================================================ */
 
 html {
@@ -11,60 +12,47 @@ html {
 }
 
 body {
-  @apply bg-suraksha-dark text-gray-100 antialiased;
+  @apply bg-gov-bg text-gov-text antialiased;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
 }
 
-/* Custom scrollbar for dark theme */
+/* Subtle scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  @apply bg-suraksha-dark;
+  @apply bg-gov-bg;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-suraksha-border rounded-full;
+  @apply bg-gray-300 rounded-full;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-gray-500;
+  @apply bg-gray-400;
 }
 
-/* Textarea focus ring */
 textarea:focus {
-  @apply outline-none ring-2 ring-suraksha-accent;
+  @apply outline-none ring-2 ring-gov-accent;
 }
 
-/* Gauge animation */
-@keyframes gauge-fill {
-  from {
-    stroke-dashoffset: 283;
-  }
+/* Collapsible panel animation */
+.collapsible-content {
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
 }
 
-.gauge-animate {
-  animation: gauge-fill 1.2s ease-out forwards;
-}
-
-/* Pulse animation for loading */
-@keyframes pulse-ring {
-  0% {
-    transform: scale(0.8);
+/* Listening indicator pulse */
+@keyframes listening-pulse {
+  0%, 100% {
     opacity: 1;
+    transform: scale(1);
   }
-  100% {
-    transform: scale(1.4);
-    opacity: 0;
+  50% {
+    opacity: 0.6;
+    transform: scale(1.15);
   }
 }
 
-.pulse-ring {
-  animation: pulse-ring 1.2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
-}
-
-/* Badge hover lift */
-.badge-hover {
-  @apply transition-transform duration-200;
-}
-.badge-hover:hover {
-  transform: translateY(-2px);
+.listening-pulse {
+  animation: listening-pulse 1.4s ease-in-out infinite;
 }

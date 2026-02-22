@@ -2,16 +2,11 @@ import "./globals.css";
 import Link from "next/link";
 
 export const metadata = {
-  title: "SurakshaAI – Fraud Intelligence Engine",
+  title: "SurakshaAI – Digital Fraud Intelligence Platform",
   description:
-    "Explainable multilingual fraud detection for SMS, WhatsApp, and call transcripts.",
+    "Analyze suspicious digital communications using explainable AI and rule-based detection.",
 };
 
-/**
- * Root layout – persistent nav bar + page slot.
- * This is a SERVER component (no "use client" needed).
- * globals.css is imported here so Tailwind styles apply globally.
- */
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
@@ -22,35 +17,58 @@ export default function RootLayout({ children }) {
         />
       </head>
       <body className="min-h-screen flex flex-col">
-        {/* ---- Navigation ---- */}
-        <nav className="sticky top-0 z-50 bg-suraksha-card/80 backdrop-blur-md border-b border-suraksha-border">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2 group">
-              <span className="text-2xl">🛡️</span>
-              <span className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent group-hover:from-blue-300 group-hover:to-purple-300 transition-all">
-                SurakshaAI
-              </span>
-            </Link>
-            <div className="flex items-center gap-6">
-              <Link
-                href="/"
-                className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
-              >
-                Analyzer
+        {/* Header */}
+        <header className="sticky top-0 z-50 bg-gov-navy">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              {/* Left: Title */}
+              <Link href="/" className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-white rounded flex items-center justify-center">
+                  <span className="text-gov-navy font-bold text-sm">S</span>
+                </div>
+                <div>
+                  <span className="text-white font-bold text-lg leading-none block">
+                    SurakshaAI
+                  </span>
+                  <span className="text-blue-200 text-[10px] leading-none hidden sm:block">
+                    Digital Fraud Intelligence Platform
+                  </span>
+                </div>
               </Link>
-              <Link
-                href="/dashboard"
-                className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
-              >
-                Dashboard
-              </Link>
+
+              {/* Center: Nav */}
+              <nav className="flex items-center gap-6">
+                <Link
+                  href="/"
+                  className="text-sm font-medium text-blue-100 hover:text-white transition-colors"
+                >
+                  Analyzer
+                </Link>
+                <Link
+                  href="/dashboard"
+                  className="text-sm font-medium text-blue-100 hover:text-white transition-colors"
+                >
+                  Dashboard
+                </Link>
+              </nav>
+
+              {/* Right: Badge */}
+              <div className="hidden md:block">
+                <span className="text-[10px] text-blue-200 border border-blue-300/30 rounded px-2 py-1">
+                  Explainable AI + Rule-Based Detection
+                </span>
+              </div>
             </div>
           </div>
-        </nav>
+        </header>
+
+        {/* Content */}
         <main className="flex-1">{children}</main>
-        <footer className="border-t border-suraksha-border py-6 text-center text-xs text-gray-500">
-          SurakshaAI &copy; {new Date().getFullYear()} &mdash; Explainable
-          Multilingual Fraud Intelligence Engine
+
+        {/* Footer */}
+        <footer className="border-t border-gov-border py-6 text-center text-xs text-gov-muted bg-white">
+          SurakshaAI &mdash; Digital Fraud Intelligence Platform &copy;{" "}
+          {new Date().getFullYear()}
         </footer>
       </body>
     </html>

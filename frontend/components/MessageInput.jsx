@@ -1,24 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 /**
  * MessageInput
- * -------------
- * Chat-style multiline textarea with submit button.
- * Supports batch mode (newline-separated messages).
- *
- * Props:
- *   onSubmit(text: string)  – called with the raw textarea value
- *   disabled: boolean       – disables input during loading
- *   value: string           – controlled value (for voice input append)
- *   onChange(text: string)   – controlled change handler
+ * Chat-style multiline textarea with explicit batch toggle
+ * and optional call recording upload.
  */
-export default function MessageInput({ onSubmit, disabled, value, onChange }) {
-  const [isBatch, setIsBatch] = useState(false);
+export default function MessageInput({
+  onSubmit,
+  disabled,
+  value,
+  onChange,
+  isBatchMode,
+  onBatchToggle,
+}) {
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const fileInputRef = useRef(null);
 
   const handleKeyDown = (e) => {
-    // Ctrl/Cmd + Enter to submit
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       e.preventDefault();
       handleSubmit();
@@ -30,24 +30,46 @@ export default function MessageInput({ onSubmit, disabled, value, onChange }) {
     onSubmit(value.trim());
   };
 
-  const lineCount = value.split("\n").filter((l) => l.trim()).length;
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validTypes = [
+      "audio/mpeg",
+      "audio/wav",
+      "audio/mp3",
+      "audio/x-wav",
+      "audio/wave",
+    ];
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(mp3|wav)$/i)) {
+      alert("Please upload an MP3 or WAV file.");
+      return;
+    }
+
+    setUploadedFile(file.name);
+    onChange(
+      value +
+        (value.trim() ? "\n" : "") +
+        `[Call recording uploaded: ${file.name} — Transcription feature requires backend speech module.]`
+    );
+  };
 
   return (
-    <div className="w-full">
+    <div className="w-full space-y-3">
       {/* Batch toggle */}
-      <div className="flex items-center justify-between mb-2">
-        <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer select-none">
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-2 text-xs text-gov-muted cursor-pointer select-none">
           <input
             type="checkbox"
-            checked={isBatch}
-            onChange={(e) => setIsBatch(e.target.checked)}
-            className="rounded border-suraksha-border bg-suraksha-dark text-suraksha-accent focus:ring-suraksha-accent"
+            checked={isBatchMode}
+            onChange={(e) => onBatchToggle(e.target.checked)}
+            className="rounded border-gov-border text-gov-accent focus:ring-gov-accent h-3.5 w-3.5"
           />
-          Batch mode (one message per line)
+          Batch mode (analyze multiple messages, one per line)
         </label>
-        {isBatch && lineCount > 1 && (
-          <span className="text-xs text-gray-500">
-            {lineCount} messages detected
+        {isBatchMode && (
+          <span className="text-[10px] text-gov-muted">
+            {value.split("\n").filter((l) => l.trim()).length} message(s)
           </span>
         )}
       </div>
@@ -61,39 +83,59 @@ export default function MessageInput({ onSubmit, disabled, value, onChange }) {
           disabled={disabled}
           rows={5}
           placeholder={
-            isBatch
-              ? "Paste multiple suspicious messages, one per line…"
-              : "Paste a suspicious SMS, WhatsApp message, or call transcript…"
+            isBatchMode
+              ? "Enter multiple messages, one per line..."
+              : "Paste a suspicious SMS, WhatsApp message, or call transcript..."
           }
-          className="w-full bg-suraksha-card border border-suraksha-border rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 resize-none disabled:opacity-50 transition-colors focus:border-suraksha-accent"
+          className="w-full bg-white border border-gov-border rounded-lg px-4 py-3 text-sm text-gov-text placeholder-gray-400 resize-none disabled:opacity-50 transition-colors focus:border-gov-accent"
         />
-
-        {/* Character count */}
-        <span className="absolute bottom-3 right-3 text-xs text-gray-600">
+        <span className="absolute bottom-3 right-3 text-[10px] text-gray-400">
           {value.length} chars
         </span>
       </div>
 
-      {/* Submit button */}
-      <button
-        onClick={handleSubmit}
-        disabled={!value.trim() || disabled}
-        className="mt-3 w-full sm:w-auto px-6 py-2.5 bg-suraksha-accent hover:bg-blue-600 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-      >
-        {disabled ? (
-          <>
-            <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            Analyzing…
-          </>
-        ) : (
-          <>
-            <span>🔍</span>
-            {isBatch ? "Analyze Batch" : "Analyze Message"}
-          </>
-        )}
-      </button>
+      {/* Action row */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        {/* Submit */}
+        <button
+          onClick={handleSubmit}
+          disabled={!value.trim() || disabled}
+          className="px-6 py-2.5 bg-gov-navy hover:bg-blue-900 disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+        >
+          {disabled ? (
+            <>
+              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Analyzing...
+            </>
+          ) : (
+            <>{isBatchMode ? "Analyze Batch" : "Analyze Message"}</>
+          )}
+        </button>
 
-      <p className="mt-2 text-xs text-gray-600">
+        {/* Upload call recording */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled}
+          className="px-4 py-2.5 bg-white border border-gov-border text-sm text-gov-muted rounded-lg hover:border-gov-accent hover:text-gov-text transition-colors disabled:opacity-50"
+        >
+          Upload Call Recording (.mp3, .wav)
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".mp3,.wav,audio/mpeg,audio/wav"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+
+        {uploadedFile && (
+          <span className="text-[10px] text-gov-muted truncate max-w-[200px]">
+            Uploaded: {uploadedFile}
+          </span>
+        )}
+      </div>
+
+      <p className="text-[10px] text-gray-400">
         Press Ctrl+Enter to submit
       </p>
     </div>

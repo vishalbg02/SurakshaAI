@@ -4,96 +4,38 @@ import { useState } from "react";
 
 /**
  * ScamSimulator
- * --------------
- * A static 4-step visual flow showing how common scam tactics work.
- * Educational only — no backend calls.
- *
- * Each scenario maps to a rule-engine category.
+ * Educational flow, updated for government style.
  */
 
 const SCENARIOS = [
   {
     id: "kyc",
     title: "KYC / Bank Fraud",
-    icon: "🏦",
-    color: "text-red-400",
     steps: [
-      {
-        label: "Impersonation",
-        description: "Scammer sends SMS pretending to be SBI, HDFC, or another bank.",
-        icon: "👤",
-      },
-      {
-        label: "Fear Trigger",
-        description: "Claims your account will be blocked or KYC has expired.",
-        icon: "😨",
-      },
-      {
-        label: "Malicious Link",
-        description: "Provides a typosquatted URL like sbi-kyc-update.in to steal credentials.",
-        icon: "🔗",
-      },
-      {
-        label: "Data Theft",
-        description: "Victim enters OTP, PAN, or Aadhaar — account compromised.",
-        icon: "💀",
-      },
+      { label: "Impersonation", description: "Scammer sends SMS pretending to be SBI, HDFC, or another bank." },
+      { label: "Fear Trigger", description: "Claims your account will be blocked or KYC has expired." },
+      { label: "Malicious Link", description: "Provides a typosquatted URL like sbi-kyc-update.in to steal credentials." },
+      { label: "Data Theft", description: "Victim enters OTP, PAN, or Aadhaar — account compromised." },
     ],
   },
   {
     id: "reward",
     title: "Reward / Lottery Scam",
-    icon: "🎰",
-    color: "text-yellow-400",
     steps: [
-      {
-        label: "Lucky Winner",
-        description: "You receive a message saying you've won a cash prize or gift card.",
-        icon: "🎉",
-      },
-      {
-        label: "Urgency",
-        description: "Must 'claim within 24 hours' or the prize expires.",
-        icon: "⏰",
-      },
-      {
-        label: "Fee Request",
-        description: "Asked to pay a small 'processing fee' to receive the reward.",
-        icon: "💸",
-      },
-      {
-        label: "Money Lost",
-        description: "No prize exists. The fee and any shared details are stolen.",
-        icon: "🚫",
-      },
+      { label: "Lucky Winner", description: "You receive a message saying you've won a cash prize or gift card." },
+      { label: "Urgency", description: "Must 'claim within 24 hours' or the prize expires." },
+      { label: "Fee Request", description: "Asked to pay a small 'processing fee' to receive the reward." },
+      { label: "Money Lost", description: "No prize exists. The fee and any shared details are stolen." },
     ],
   },
   {
     id: "call",
     title: "Call Transcript Scam",
-    icon: "📞",
-    color: "text-purple-400",
     steps: [
-      {
-        label: "Automated Call",
-        description: "An IVR call claims to be from police, customs, or telecom authority.",
-        icon: "🤖",
-      },
-      {
-        label: "Authority Pressure",
-        description: "'Your number is involved in illegal activity. Press 1 to connect.'",
-        icon: "👮",
-      },
-      {
-        label: "Intimidation",
-        description: "A 'senior officer' threatens arrest unless you cooperate immediately.",
-        icon: "⚖️",
-      },
-      {
-        label: "Wire Transfer",
-        description: "Victim is coerced into transferring money to a 'verification account'.",
-        icon: "💀",
-      },
+      { label: "Automated Call", description: "An IVR call claims to be from police, customs, or telecom authority." },
+      { label: "Authority Pressure", description: "'Your number is involved in illegal activity. Press 1 to connect.'" },
+      { label: "Intimidation", description: "A 'senior officer' threatens arrest unless you cooperate immediately." },
+      { label: "Wire Transfer", description: "Victim is coerced into transferring money to a 'verification account'." },
     ],
   },
 ];
@@ -105,10 +47,9 @@ export default function ScamSimulator() {
   const scenario = SCENARIOS.find((s) => s.id === activeScenario);
 
   return (
-    <div className="bg-suraksha-card border border-suraksha-border rounded-xl p-5 space-y-5">
-      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2">
-        <span>🎓</span>
-        Scam Simulator — How Scams Work
+    <div className="bg-white border border-gov-border rounded-lg p-5 space-y-5">
+      <h3 className="text-xs font-semibold text-gov-text uppercase tracking-wider">
+        How Scams Work — Educational Guide
       </h3>
 
       {/* Scenario tabs */}
@@ -116,69 +57,59 @@ export default function ScamSimulator() {
         {SCENARIOS.map((s) => (
           <button
             key={s.id}
-            onClick={() => {
-              setActiveScenario(s.id);
-              setActiveStep(0);
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            onClick={() => { setActiveScenario(s.id); setActiveStep(0); }}
+            className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${
               activeScenario === s.id
-                ? "bg-suraksha-accent/15 text-suraksha-accent border border-suraksha-accent/30"
-                : "bg-gray-800 text-gray-400 border border-transparent hover:text-gray-200"
+                ? "bg-gov-navy/10 text-gov-navy border border-gov-navy/20"
+                : "bg-gray-50 text-gov-muted border border-transparent hover:text-gov-text"
             }`}
           >
-            {s.icon} {s.title}
+            {s.title}
           </button>
         ))}
       </div>
 
-      {/* Step progress bar */}
+      {/* Progress */}
       <div className="flex items-center gap-1">
         {scenario.steps.map((_, i) => (
           <div
             key={i}
-            className={`flex-1 h-1.5 rounded-full transition-all cursor-pointer ${
-              i <= activeStep ? "bg-suraksha-accent" : "bg-gray-700"
+            className={`flex-1 h-1 rounded-full transition-all cursor-pointer ${
+              i <= activeStep ? "bg-gov-navy" : "bg-gray-200"
             }`}
             onClick={() => setActiveStep(i)}
           />
         ))}
       </div>
 
-      {/* Active step display */}
-      <div className="flex items-start gap-4 min-h-[100px]">
-        <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gray-800 flex items-center justify-center text-2xl">
-          {scenario.steps[activeStep].icon}
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-white mb-1">
-            Step {activeStep + 1}: {scenario.steps[activeStep].label}
-          </p>
-          <p className="text-sm text-gray-400 leading-relaxed">
-            {scenario.steps[activeStep].description}
-          </p>
-        </div>
+      {/* Step */}
+      <div className="min-h-[80px]">
+        <p className="text-sm font-semibold text-gov-text mb-1">
+          Step {activeStep + 1}: {scenario.steps[activeStep].label}
+        </p>
+        <p className="text-sm text-gov-muted leading-relaxed">
+          {scenario.steps[activeStep].description}
+        </p>
       </div>
 
-      {/* Navigation */}
-      <div className="flex items-center justify-between pt-2 border-t border-suraksha-border">
+      {/* Nav */}
+      <div className="flex items-center justify-between pt-2 border-t border-gov-border">
         <button
           onClick={() => setActiveStep((s) => Math.max(0, s - 1))}
           disabled={activeStep === 0}
-          className="text-xs text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          className="text-xs text-gov-muted hover:text-gov-text disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          ← Previous
+          Previous
         </button>
-        <span className="text-xs text-gray-600">
+        <span className="text-[10px] text-gov-muted">
           {activeStep + 1} / {scenario.steps.length}
         </span>
         <button
-          onClick={() =>
-            setActiveStep((s) => Math.min(scenario.steps.length - 1, s + 1))
-          }
+          onClick={() => setActiveStep((s) => Math.min(scenario.steps.length - 1, s + 1))}
           disabled={activeStep === scenario.steps.length - 1}
-          className="text-xs text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          className="text-xs text-gov-muted hover:text-gov-text disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          Next →
+          Next
         </button>
       </div>
     </div>

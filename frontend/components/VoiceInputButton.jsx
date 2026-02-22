@@ -4,21 +4,16 @@ import { useState, useRef, useEffect } from "react";
 
 /**
  * VoiceInputButton
- * -----------------
- * Uses the Web Speech API (SpeechRecognition) to capture voice input
- * and appends the transcript to the parent textarea via onTranscript().
- *
- * Props:
- *   onTranscript(text: string) – called with each recognised transcript chunk
- *   disabled: boolean
+ * Uses Web Speech API with proper listening state,
+ * error handling, and stop functionality.
  */
 export default function VoiceInputButton({ onTranscript, disabled }) {
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(true);
+  const [error, setError] = useState(null);
   const recognitionRef = useRef(null);
 
   useEffect(() => {
-    // Check browser support
     const SpeechRecognition =
       typeof window !== "undefined" &&
       (window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -31,7 +26,7 @@ export default function VoiceInputButton({ onTranscript, disabled }) {
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = false;
-    recognition.lang = "en-IN"; // Supports English + Hinglish
+    recognition.lang = "en-IN";
 
     recognition.onresult = (event) => {
       let transcript = "";
@@ -48,6 +43,18 @@ export default function VoiceInputButton({ onTranscript, disabled }) {
     recognition.onerror = (event) => {
       console.error("Speech recognition error:", event.error);
       setListening(false);
+
+      if (event.error === "not-allowed") {
+        setError("Microphone access denied. Please allow microphone permissions.");
+      } else if (event.error === "no-speech") {
+        setError("No speech detected. Please try again.");
+      } else if (event.error === "network") {
+        setError("Network error. Speech recognition requires an internet connection.");
+      } else {
+        setError(`Speech error: ${event.error}`);
+      }
+
+      setTimeout(() => setError(null), 5000);
     };
 
     recognition.onend = () => {
@@ -62,43 +69,58 @@ export default function VoiceInputButton({ onTranscript, disabled }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleListening = () => {
+  const startListening = () => {
     if (!recognitionRef.current) return;
-
-    if (listening) {
-      recognitionRef.current.stop();
-      setListening(false);
-    } else {
+    setError(null);
+    try {
       recognitionRef.current.start();
       setListening(true);
+    } catch (err) {
+      setError("Could not start voice input. Please try again.");
+      console.error("Start error:", err);
     }
+  };
+
+  const stopListening = () => {
+    if (!recognitionRef.current) return;
+    recognitionRef.current.stop();
+    setListening(false);
   };
 
   if (!supported) {
     return (
-      <button
-        disabled
-        title="Voice input not supported in this browser"
-        className="px-3 py-2.5 bg-gray-800 text-gray-600 rounded-lg text-sm cursor-not-allowed"
-      >
-        🎙️ Not Supported
-      </button>
+      <div className="text-[10px] text-gov-muted border border-gov-border rounded-lg px-3 py-2">
+        Voice input not supported in this browser.
+      </div>
     );
   }
 
   return (
-    <button
-      onClick={toggleListening}
-      disabled={disabled}
-      title={listening ? "Stop listening" : "Start voice input"}
-      className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
-        listening
-          ? "bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse"
-          : "bg-suraksha-card border border-suraksha-border text-gray-300 hover:border-suraksha-accent hover:text-white"
-      } disabled:opacity-50 disabled:cursor-not-allowed`}
-    >
-      <span className="text-base">{listening ? "⏹️" : "🎙️"}</span>
-      {listening ? "Listening…" : "Voice"}
-    </button>
+    <div className="flex flex-col items-start gap-1">
+      {listening ? (
+        <button
+          onClick={stopListening}
+          className="px-4 py-2.5 rounded-lg text-sm font-medium bg-risk-critical/10 text-risk-critical border border-risk-critical/30 transition-all flex items-center gap-2"
+        >
+          {/* Red pulsing dot */}
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="listening-pulse absolute inline-flex h-full w-full rounded-full bg-risk-critical opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-risk-critical" />
+          </span>
+          Listening... (click to stop)
+        </button>
+      ) : (
+        <button
+          onClick={startListening}
+          disabled={disabled}
+          className="px-4 py-2.5 rounded-lg text-sm font-medium bg-white border border-gov-border text-gov-muted hover:border-gov-accent hover:text-gov-text transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Voice Input
+        </button>
+      )}
+      {error && (
+        <p className="text-[10px] text-risk-critical max-w-[250px]">{error}</p>
+      )}
+    </div>
   );
 }

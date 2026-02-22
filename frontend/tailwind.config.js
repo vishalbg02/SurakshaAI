@@ -7,20 +7,24 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        suraksha: {
-          dark: "#0F172A",
-          card: "#1E293B",
-          border: "#334155",
-          accent: "#3B82F6",
-          green: "#22C55E",
-          yellow: "#EAB308",
-          orange: "#F97316",
-          red: "#EF4444",
-          critical: "#A855F7",
+        gov: {
+          bg: "#F5F7FA",
+          navy: "#0B3D91",
+          accent: "#1A73E8",
+          text: "#1F2937",
+          border: "#E5E7EB",
+          card: "#FFFFFF",
+          muted: "#6B7280",
+        },
+        risk: {
+          low: "#2E7D32",
+          medium: "#F9A825",
+          high: "#EF6C00",
+          critical: "#C62828",
         },
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
+        sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
       },
     },
   },
