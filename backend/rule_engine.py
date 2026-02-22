@@ -33,6 +33,18 @@ PATCH v5 (SCORING PROPORTIONALITY):
   - Removed raw score forcing to 100
   - Floors only enforce minimum, never inflate to ceiling
   - Preserves detection coverage, restores score differentiation
+
+PATCH v6 (CONTEXT-AWARE FINANCIAL DETECTION):
+  - Split financial keywords into neutral terms vs action verbs
+  - financial_data_request ONLY triggers on compound match:
+      (neutral financial term) + (action verb)
+      OR (financial term) + (dynamic urgency)
+      OR (financial term) + (URL detected)
+      OR (financial term) + (OTP detected)
+  - Standalone neutral financial mentions produce score 0
+  - Added negative-intent suppression (successfully, completed, etc.)
+  - Preserves all strong cases: refund phish, vendor scam, OTP, etc.
+  - No changes to thresholds, overrides, fusion, or URL scanner
 """
 
 from __future__ import annotations
@@ -125,42 +137,6 @@ SCAM_KEYWORDS: dict[str, tuple[int, list[str]]] = {
     ),
 
     # ------------------------------------------------------------------
-    # Financial data request / refund phishing / corporate fraud
-    # PATCH v5: weight reduced from 22 → 16 to prevent score inflation
-    # when multiple financial phrases match in a single message.
-    # Detection coverage is unchanged; only per-hit contribution is lower.
-    # ------------------------------------------------------------------
-    "financial_data_request": (
-        16,
-        [
-            "refund", "rejected", "transaction declined",
-            "payment failed", "billing issue",
-            "update payment", "update payment method",
-            "confirm your account", "confirm account details",
-            "confirm your details", "verify your details",
-            "verify your account", "account verification",
-            "avoid cancellation", "to avoid cancellation",
-            "avoid account closure", "account closure",
-            "temporary suspension", "account restricted",
-            "processing issue",
-            "bank details",
-            "update bank details",
-            "confirm bank details",
-            "vendor payment",
-            "payment rejected",
-            "payment pending",
-            "process payment",
-            "invoice overdue",
-            "wire transfer",
-            "transfer funds",
-            "account information",
-            "update account information",
-            "confirm account information",
-            "refund could not be processed",
-        ],
-    ),
-
-    # ------------------------------------------------------------------
     # Hindi / Hinglish categories
     # ------------------------------------------------------------------
     "hindi_urgency": (
@@ -222,6 +198,69 @@ SCAM_KEYWORDS: dict[str, tuple[int, list[str]]] = {
 }
 
 # ============================================================================
+# CONTEXT-AWARE FINANCIAL DETECTION (v6)
+# ============================================================================
+# financial_data_request is NO LONGER in SCAM_KEYWORDS.
+# It is detected separately via compound logic below.
+#
+# Split into two concept groups:
+#   1. NEUTRAL financial terms — benign on their own
+#   2. ACTION verbs — indicate the sender wants the victim to DO something
+#
+# financial_data_request triggers ONLY when:
+#   (neutral term) + (action verb)
+#   OR (neutral term) + (dynamic urgency)
+#   OR (neutral term) + (suspicious URL)
+#   OR (neutral term) + (OTP request)
+# ============================================================================
+
+FINANCIAL_NEUTRAL_TERMS: list[str] = [
+    "refund", "payment", "vendor payment", "bank details",
+    "bank account", "transaction", "billing", "invoice",
+    "wire transfer", "transfer funds", "account information",
+    "account details", "payment method", "payment failed",
+    "payment rejected", "payment pending", "processing issue",
+    "billing issue", "refund could not be processed",
+    "vendor", "salary", "credited", "processed",
+    "invoice overdue",
+]
+
+FINANCIAL_ACTION_VERBS: list[str] = [
+    "confirm", "update", "verify", "submit", "provide",
+    "share", "re-enter", "click", "enter", "complete",
+    "avoid cancellation", "prevent cancellation",
+    "to avoid cancellation", "avoid account closure",
+    "account closure", "temporary suspension",
+    "account restricted",
+]
+
+FINANCIAL_WEIGHT: int = 16
+
+# Negative-intent phrases: if these appear AND no action verbs are found,
+# suppress financial_data_request entirely.
+NEGATIVE_INTENT_PHRASES: list[str] = [
+    "successfully",
+    "completed",
+    "no further action required",
+    "no action required",
+    "thank you",
+    "has been credited",
+    "has been processed successfully",
+    "has been processed",
+    "payment successful",
+    "processed successfully",
+    "successfully processed",
+    "no action needed",
+    "no further action needed",
+    "refund processed",
+    "refund completed",
+    "salary credited",
+    "invoice paid",
+    "payment completed",
+]
+
+
+# ============================================================================
 # SOCIAL IMPERSONATION – compound detection keywords
 # ============================================================================
 
@@ -261,8 +300,6 @@ SOCIAL_URGENCY_BOOST: int = 10
 
 # ============================================================================
 # DYNAMIC TIME PRESSURE REGEX
-# PATCH v5: weight reduced from 15 → 10. Urgency alone should not
-# inflate score excessively. The detection patterns are unchanged.
 # ============================================================================
 
 DYNAMIC_TIME_PATTERNS: list[re.Pattern] = [
@@ -291,7 +328,7 @@ DYNAMIC_TIME_PATTERNS: list[re.Pattern] = [
 DYNAMIC_URGENCY_WEIGHT: int = 10
 
 # ============================================================================
-# COMPOUND FINANCIAL DETECTION PATTERNS
+# COMPOUND FINANCIAL DETECTION PATTERNS (legacy, kept for account+action)
 # ============================================================================
 
 _ACCOUNT_RE = re.compile(r"\baccount\b", re.IGNORECASE)
@@ -303,10 +340,7 @@ _CONFIRM_VERIFY_UPDATE_RE = re.compile(
 _NORMALISATION_DIVISOR: int = 60
 
 # ============================================================================
-# FINANCIAL + DYNAMIC URGENCY ESCALATION FLOOR
-# PATCH v5: The raw floor is set so normalised score lands around 60-65,
-# NOT at 100.  This is a MINIMUM, not a target.
-#   floor_raw / 60 * 100 ~= 62  →  floor_raw = 37
+# FINANCIAL + DYNAMIC URGENCY RAW FLOOR
 # ============================================================================
 _FINANCIAL_DYNAMIC_URGENCY_RAW_FLOOR: int = 37
 
@@ -319,28 +353,19 @@ _regex_cache: dict[str, re.Pattern] = {}
 
 
 def _phrase_to_regex(phrase: str) -> re.Pattern:
-    """
-    Convert a keyword/phrase to a word-boundary-aware compiled regex.
-    """
     if phrase in _regex_cache:
         return _regex_cache[phrase]
-
     escaped = re.escape(phrase)
-
     if phrase.endswith(","):
         pattern = r"\b" + escaped
     else:
         pattern = r"\b" + escaped + r"\b"
-
     compiled = re.compile(pattern, re.IGNORECASE)
     _regex_cache[phrase] = compiled
     return compiled
 
 
 def _word_boundary_match(phrase: str, text: str) -> bool:
-    """
-    Return True if *phrase* appears in *text* as a whole-word match.
-    """
     regex = _phrase_to_regex(phrase)
     return bool(regex.search(text))
 
@@ -351,8 +376,8 @@ def _word_boundary_match(phrase: str, text: str) -> bool:
 
 def _detect_keywords(text: str) -> tuple[int, list[str], list[dict[str, str]]]:
     """
-    Scan *text* against every category in SCAM_KEYWORDS using
-    word-boundary matching.
+    Scan *text* against every category in SCAM_KEYWORDS.
+    NOTE: financial_data_request is NOT in SCAM_KEYWORDS anymore.
     """
     raw_score: int = 0
     categories_seen: set[str] = set()
@@ -391,14 +416,98 @@ def _detect_dynamic_urgency(text: str) -> tuple[int, list[dict[str, str]]]:
     return bonus, phrases
 
 
-def _detect_compound_financial(
+def _detect_context_aware_financial(
+    text: str,
+    has_dynamic_urgency: bool,
+    has_suspicious_url: bool,
+    has_otp: bool,
+) -> tuple[int, list[dict[str, str]]]:
+    """
+    Context-aware financial detection (v6).
+
+    Returns (score_bonus, matched_phrases).
+
+    financial_data_request triggers ONLY when a neutral financial
+    term co-occurs with at least one escalation signal:
+      - An action verb (confirm, update, verify, etc.)
+      - Dynamic urgency (within X hours, etc.)
+      - A suspicious URL
+      - An OTP request
+
+    If negative-intent phrases are present AND no action verbs
+    are found, detection is suppressed entirely.
+    """
+    # Step 1: Find all neutral financial terms present
+    found_neutral: list[str] = []
+    for term in FINANCIAL_NEUTRAL_TERMS:
+        if _word_boundary_match(term, text):
+            found_neutral.append(term)
+
+    if not found_neutral:
+        return 0, []
+
+    # Step 2: Find all action verbs present
+    found_actions: list[str] = []
+    for verb in FINANCIAL_ACTION_VERBS:
+        if _word_boundary_match(verb, text):
+            found_actions.append(verb)
+
+    # Step 3: Check negative intent
+    has_negative_intent = False
+    for neg_phrase in NEGATIVE_INTENT_PHRASES:
+        if _word_boundary_match(neg_phrase, text):
+            has_negative_intent = True
+            break
+
+    # Step 4: If negative intent present AND no action verbs AND
+    # no urgency/URL/OTP → suppress completely
+    if has_negative_intent and not found_actions and not has_dynamic_urgency and not has_suspicious_url and not has_otp:
+        return 0, []
+
+    # Step 5: Check compound conditions
+    has_compound = False
+    compound_reason = ""
+
+    if found_actions:
+        has_compound = True
+        compound_reason = f"financial term + action verb ({found_actions[0]})"
+    elif has_dynamic_urgency:
+        has_compound = True
+        compound_reason = "financial term + dynamic urgency"
+    elif has_suspicious_url:
+        has_compound = True
+        compound_reason = "financial term + suspicious URL"
+    elif has_otp:
+        has_compound = True
+        compound_reason = "financial term + OTP request"
+
+    if not has_compound:
+        # Neutral financial terms alone → no trigger
+        return 0, []
+
+    # Step 6: Build matched phrases
+    matched: list[dict[str, str]] = []
+    for term in found_neutral:
+        matched.append({"phrase": term, "category": "financial_data_request"})
+    for verb in found_actions:
+        matched.append({"phrase": verb, "category": "financial_data_request"})
+
+    # Add a compound-reason entry for explainability
+    matched.append({
+        "phrase": compound_reason,
+        "category": "financial_data_request",
+    })
+
+    return FINANCIAL_WEIGHT, matched
+
+
+def _detect_compound_financial_legacy(
     text: str,
     existing_categories: set[str],
     has_dynamic_urgency: bool,
 ) -> tuple[int, list[dict[str, str]]]:
     """
-    Compound detection: "account" + "confirm/verify/update" + time pressure
-    → flag as financial_data_request.
+    Legacy compound detection: "account" + "confirm/verify/update" + time pressure.
     Only triggers if financial_data_request is NOT already detected.
     """
     if "financial_data_request" in existing_categories:
@@ -411,8 +520,7 @@ def _detect_compound_financial(
     )
 
     if has_account and has_action and has_time_pressure:
-        # Use the reduced weight (16) for compound detection too
-        return 16, [
+        return FINANCIAL_WEIGHT, [
             {"phrase": "account + confirm/verify/update + time pressure",
              "category": "financial_data_request"},
         ]
@@ -424,9 +532,6 @@ def _detect_social_impersonation(
     text: str,
     existing_categories: list[str],
 ) -> tuple[int, bool, list[dict[str, str]]]:
-    """
-    Compound detection for social/family impersonation scams.
-    """
     found_family = [kw for kw in FAMILY_KEYWORDS if _word_boundary_match(kw, text)]
     found_new_number = [kw for kw in NEW_NUMBER_KEYWORDS if _word_boundary_match(kw, text)]
     found_money = [kw for kw in MONEY_REQUEST_KEYWORDS if _word_boundary_match(kw, text)]
@@ -475,7 +580,6 @@ def _detect_social_impersonation(
 
 
 def _has_otp_request(matched_categories: list[str]) -> bool:
-    """Check whether OTP-related categories were triggered."""
     otp_cats = {"otp", "hindi_otp_personal"}
     return bool(otp_cats & set(matched_categories))
 
@@ -512,9 +616,31 @@ def analyze(text: str) -> dict[str, Any]:
     if has_dynamic_urgency:
         categories = sorted(set(categories) | {"dynamic_urgency"})
 
-    # --- compound financial detection ----------------------------------------
+    # --- URL scanning --------------------------------------------------------
+    url_result = scan_urls(text)
+    url_score: int = url_result["url_score"]
+    raw_score += url_score
+    if url_result["suspicious_urls"]:
+        categories = sorted(set(categories) | {"suspicious_url"})
+
+    has_suspicious_url = len(url_result["suspicious_urls"]) > 0
+
+    # --- OTP detection (needed before financial check) -----------------------
+    has_otp = _has_otp_request(categories)
+
+    # --- context-aware financial detection (v6) ------------------------------
     cats_set = set(categories)
-    compound_bonus, compound_phrases = _detect_compound_financial(
+    fin_bonus, fin_phrases = _detect_context_aware_financial(
+        text, has_dynamic_urgency, has_suspicious_url, has_otp
+    )
+    raw_score += fin_bonus
+    matched_phrases.extend(fin_phrases)
+    if fin_bonus > 0:
+        categories = sorted(set(categories) | {"financial_data_request"})
+        cats_set.add("financial_data_request")
+
+    # --- legacy compound financial (account + action + urgency) ---------------
+    compound_bonus, compound_phrases = _detect_compound_financial_legacy(
         text, cats_set, has_dynamic_urgency
     )
     raw_score += compound_bonus
@@ -533,36 +659,20 @@ def analyze(text: str) -> dict[str, Any]:
         categories = sorted(set(categories) | {"social_impersonation"})
         cats_set.add("social_impersonation")
 
-    # --- URL scanning --------------------------------------------------------
-    url_result = scan_urls(text)
-    url_score: int = url_result["url_score"]
-    raw_score += url_score
-    if url_result["suspicious_urls"]:
-        categories = sorted(set(categories) | {"suspicious_url"})
-
     # --- Flags ---------------------------------------------------------------
     has_financial_request = "financial_data_request" in set(categories)
     has_any_urgency = bool(
         {"urgency", "hindi_urgency", "dynamic_urgency"} & set(categories)
     )
 
-    # --- Financial + urgency floor (MINIMUM only, never forces to ceiling) ---
-    # PATCH v5: This floor ensures financial scams with urgency don't drop
-    # below ~62 normalised, but does NOT inflate them to 100.
-    # The floor is applied to raw_score BEFORE normalisation so the result
-    # scales naturally with the divisor.
+    # --- Financial + urgency floor (MINIMUM only) ----------------------------
     if has_financial_request and has_any_urgency:
         raw_score = max(raw_score, _FINANCIAL_DYNAMIC_URGENCY_RAW_FLOOR)
 
     # --- Normalise to 0-100 --------------------------------------------------
-    # PATCH v5: No forced raw_score = 100 anywhere.  The normalisation
-    # formula is the sole determinant of the final rule score.
     normalised = int(min((raw_score / _NORMALISATION_DIVISOR) * 100, 100))
 
     # --- Build flags dict ----------------------------------------------------
-    has_otp = _has_otp_request(categories)
-    has_suspicious_url = len(url_result["suspicious_urls"]) > 0
-
     return {
         "score": normalised,
         "categories": categories,
@@ -579,54 +689,84 @@ def analyze(text: str) -> dict[str, Any]:
 
 
 # ============================================================================
-# TEST CASES (comment block – not runtime code)
+# TEST CASES (v6 — context-aware financial detection)
 # ============================================================================
 #
-# === SCORING PROPORTIONALITY TESTS (v5) ===
+# === FALSE POSITIVE PREVENTION ===
 #
-# 1. Refund Phish (no URL, no OTP):
+# 1. Neutral vendor confirmation (MUST be LOW):
+#    "We have processed your vendor payment successfully. No further action is required."
+#    → score: 0, categories: [], risk: Low
+#    Reason: "vendor payment" + "processed" + "successfully" + "no further action"
+#            = neutral term + negative intent + no action verbs → SUPPRESSED
+#
+# 2. Salary notification (MUST be LOW):
+#    "Your salary of ₹45,000 has been credited to your account."
+#    → score: 0, categories: [], risk: Low
+#    Reason: "salary" + "credited" = neutral term + negative intent → SUPPRESSED
+#
+# 3. Refund completed (MUST be LOW):
+#    "Your refund of ₹2,499 has been processed successfully. Thank you."
+#    → score: 0, categories: [], risk: Low
+#    Reason: "refund" + "processed successfully" + "thank you" → SUPPRESSED
+#
+# 4. Invoice paid (MUST be LOW):
+#    "Invoice #4829 has been paid. No action needed."
+#    → score: 0, categories: [], risk: Low
+#
+# 5. Membership reminder (MUST be LOW):
+#    "Reminder: Your gym membership renews tomorrow."
+#    → score: 0, categories: [], risk: Low
+#
+# === STRONG DETECTION PRESERVATION ===
+#
+# 6. Refund phishing (MUST be HIGH):
 #    "Your refund could not be processed.
-#     Confirm your account information to prevent cancellation."
-#    → financial_data_request, score 60-75, Medium/High, NOT 100
+#     Confirm your bank details within 6 hours."
+#    → financial_data_request (refund + confirm + within 6 hours)
+#    → score: 60-80, risk: High
 #
-# 2. Vendor Scam (no URL, no OTP):
+# 7. Vendor update scam (MUST be HIGH):
 #    "We are unable to process your vendor payment.
 #     Please update bank details within 24 hours."
-#    → financial_data_request + dynamic_urgency, score 65-80, High, NOT 100
+#    → financial_data_request (vendor payment + update + within 24 hours)
+#    → score: 65-80, risk: High
 #
-# 3. Vendor + Suspicious URL:
-#    "Update bank details within 24 hours at https://hdfc-secure-update.co.in"
-#    → financial_data_request + dynamic_urgency + suspicious_url
-#    → score 85-95, High/Critical
+# 8. Bank phishing with URL (MUST be HIGH/CRITICAL):
+#    "Your HDFC account has been restricted.
+#     Verify immediately at https://fake-bank.co.in"
+#    → authority_impersonation + fear + urgency + suspicious_url
+#    → score: 85-95, risk: High/Critical
 #
-# 4. OTP + Suspicious URL:
-#    "Share OTP immediately at http://fake-bank.in"
-#    → OTP + suspicious URL override, score ≥ 90, Critical
+# 9. OTP + URL (MUST be CRITICAL):
+#    "Share OTP immediately at http://secure-update.in"
+#    → OTP + URL override → score: ≥90, risk: Critical
 #
-# 5. Legitimate Reminder:
-#    "Reminder: Your gym membership renews tomorrow."
-#    → no categories, score 0-10, Low
-#
-# === LEGACY TESTS (still valid) ===
-#
-# 6. Social impersonation:
-#    "Hi Dad I lost my phone send 10000 urgently"
-#    → social_impersonation + urgency, has_money_request: True
-#
-# 7. Authority + fear + KYC:
-#    "Your SBI account blocked due to KYC expiry click link to verify"
-#    → authority_impersonation + fear + kyc_scam
-#
-# 8. Substring safety:
-#    "Please confirm your booking for tomorrow."
-#    → "fir" must NOT appear in matched phrases, Low
-#
-# 9. Invoice fraud:
-#    "Invoice overdue. Wire transfer funds by tomorrow to avoid penalty."
-#    → financial_data_request + dynamic_urgency + fear, 65-80
-#
-# 10. Full stacked phishing (all signals):
+# 10. Full stacked phishing (MUST be CRITICAL):
 #     "Dear customer, your SBI account has been blocked due to KYC expiry.
 #      Share OTP and click http://sbi-kyc-update.in to verify immediately
 #      or account will be permanently closed within 24 hours."
-#     → OTP + URL + authority + fear + urgency + KYC, score 95-100, Critical
+#     → OTP + URL + authority + fear + urgency + KYC → 95-100, Critical
+#
+# 11. Vendor + URL (MUST be HIGH/CRITICAL):
+#     "Update bank details within 24 hours at https://hdfc-secure-update.co.in"
+#     → financial_data_request + dynamic_urgency + suspicious_url
+#     → score: 85-95, risk: High/Critical
+#
+# 12. Standalone financial term, no action (MUST be LOW):
+#     "Your payment was successful."
+#     → score: 0, categories: [], risk: Low
+#
+# 13. Financial term + action verb, no urgency (MUST be MEDIUM):
+#     "Please confirm your account details."
+#     → financial_data_request (confirm = action verb)
+#     → score: ~26, risk: Low/Medium
+#
+# 14. Social impersonation (MUST detect):
+#     "Hi Dad I lost my phone send 10000 urgently"
+#     → social_impersonation + urgency, has_money_request: True
+#
+# 15. Confirm + avoid cancellation (MUST be HIGH):
+#     "Confirm your bank details within 6 hours to avoid cancellation."
+#     → financial_data_request (confirm + avoid cancellation + within 6 hours)
+#     → score: 70-85, risk: High/Critical

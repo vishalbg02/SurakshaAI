@@ -1,22 +1,13 @@
 """
 psych_classifier.py
---------------------
-Detects psychological manipulation tactics used in scam messages.
+-------------------
+Detects psychological manipulation tactics in text.
 
-Categories
-----------
-- Fear                      – threats of loss, legal action, account closure
-- Urgency                   – time pressure, countdown, deadlines
-- Authority                 – impersonation of banks, government, police
-- Reward                    – promises of prizes, gifts, money
-- Scarcity                  – limited availability, exclusive offers
-- Emotional Manipulation    – family impersonation, trust exploitation (v2)
-- Financial Pressure (v3)   – refund/billing threats to create monetary fear
-- Financial Coercion (v4)   – broader financial manipulation detection
-
-All matching uses word-boundary regex to prevent substring false positives.
-
-Returns a psych_score (0-100) and human-readable explanation.
+PATCH v6 (CONTEXT-AWARE):
+  - Financial Pressure / Financial Coercion only trigger when
+    loss, denial, rejection, suspension, or cancellation is implied.
+  - Neutral financial outcomes (processed, credited, completed)
+    do NOT trigger psychological financial categories.
 """
 
 from __future__ import annotations
@@ -24,216 +15,107 @@ from __future__ import annotations
 import re
 from typing import Any
 
+
 # ============================================================================
-# Word-boundary matching
+# TACTIC PATTERNS
+# ============================================================================
+
+TACTIC_PATTERNS: dict[str, list[str]] = {
+    "Fear": [
+        "blocked", "suspended", "terminated", "legal action",
+        "arrest warrant", "fir registered", "compromised",
+        "unauthorized access", "security alert", "fraud detected",
+        "account frozen", "blacklisted", "under investigation",
+        "will be deactivated", "will be blocked",
+        "permanently closed", "penalty",
+    ],
+    "Urgency": [
+        "immediately", "urgent", "right now", "act now",
+        "last chance", "hurry", "time is running out",
+        "expires today", "don't delay", "limited time",
+        "before it's too late", "do it now", "final warning",
+        "action required", "within 24 hours",
+    ],
+    "Authority": [
+        "rbi", "reserve bank", "income tax", "sbi",
+        "hdfc bank", "icici bank", "government",
+        "cyber crime", "police department", "customs",
+        "ministry", "trai", "sebi", "epfo",
+        "inspector", "officer", "department",
+    ],
+    "Reward": [
+        "you have won", "congratulations", "lucky winner",
+        "claim your prize", "gift card", "cash prize",
+        "lottery", "reward points", "free gift",
+        "selected for a reward", "you've been chosen",
+        "bonus credited", "cashback",
+    ],
+    "Scarcity": [
+        "limited spots", "only few left", "offer expires",
+        "closing soon", "last chance", "limited time",
+        "exclusive offer", "first come", "running out",
+    ],
+    "Emotional Manipulation": [
+        "hi dad", "hi mom", "lost my phone", "new number",
+        "emergency", "please help", "i'm stuck",
+        "need money", "send money", "urgent help",
+        "i'm in trouble", "please send",
+    ],
+}
+
+# ============================================================================
+# FINANCIAL PRESSURE / COERCION — context-aware (v6)
+#
+# These categories ONLY trigger when the message implies:
+#   - Loss, denial, rejection, suspension, or cancellation
+#   - NOT when describing a successful/completed transaction
+# ============================================================================
+
+_FINANCIAL_LOSS_INDICATORS: list[str] = [
+    "could not be processed", "unable to process",
+    "payment failed", "payment rejected",
+    "transaction declined", "billing issue",
+    "processing issue", "account restricted",
+    "temporary suspension", "avoid cancellation",
+    "prevent cancellation", "account closure",
+    "avoid account closure", "overdue",
+    "rejected", "failed", "declined", "restricted",
+    "suspended", "penalty",
+]
+
+_FINANCIAL_COERCION_INDICATORS: list[str] = [
+    "confirm your", "update your", "verify your",
+    "submit your", "provide your", "share your",
+    "update bank details", "confirm bank details",
+    "verify bank details", "confirm account",
+    "update account", "verify account",
+]
+
+# Negative-intent phrases that suppress financial psych triggers
+_FINANCIAL_NEGATIVE_INTENT: list[str] = [
+    "successfully", "completed", "has been credited",
+    "has been processed", "processed successfully",
+    "payment successful", "no further action",
+    "no action required", "no action needed",
+    "thank you", "refund processed",
+    "refund completed", "salary credited",
+    "invoice paid", "payment completed",
+]
+
+# ============================================================================
+# Word-boundary helpers
 # ============================================================================
 
 _psych_regex_cache: dict[str, re.Pattern] = {}
 
 
-def _psych_word_match(keyword: str, text: str) -> bool:
-    """
-    Word-boundary match for psychological keywords.
-    Prevents substring false positives (e.g. "fir" inside "confirm").
-    """
-    if keyword not in _psych_regex_cache:
-        escaped = re.escape(keyword)
-        _psych_regex_cache[keyword] = re.compile(
+def _match(phrase: str, text: str) -> bool:
+    if phrase not in _psych_regex_cache:
+        escaped = re.escape(phrase)
+        _psych_regex_cache[phrase] = re.compile(
             r"\b" + escaped + r"\b", re.IGNORECASE
         )
-    return bool(_psych_regex_cache[keyword].search(text))
-
-
-# ============================================================================
-# Psychological trigger keyword banks
-# ============================================================================
-
-PSYCH_TRIGGERS: dict[str, tuple[int, list[str]]] = {
-    "Fear": (
-        18,
-        [
-            # English
-            "blocked", "suspended", "terminated", "legal action",
-            "arrest", "police", "fir registered", "penalty", "blacklisted",
-            "fraud detected", "unauthorized access", "security alert",
-            "compromised", "investigation", "frozen",
-            "permanently closed", "will be deactivated",
-            # v3 expanded
-            "account closure", "avoid cancellation", "failure to comply",
-            "account suspended", "temporary restriction",
-            "service termination", "final warning",
-            "immediate action required",
-            # Hindi/Hinglish
-            "band ho jayega", "block ho jayega", "giraftari",
-            "kanuni karyavahi", "khatam ho jayega", "suspend",
-            "fir hoga", "police case",
-        ],
-    ),
-    "Urgency": (
-        14,
-        [
-            # English
-            "immediately", "urgent", "right now", "within 24 hours",
-            "act now", "last chance", "hurry", "time is running out",
-            "expires today", "limited time", "final warning",
-            "action required", "do it now", "before it's too late",
-            # Hindi/Hinglish
-            "turant", "abhi", "jaldi", "foran", "jaldi karein",
-            "waqt khatam", "der mat karo", "jald se jald",
-        ],
-    ),
-    "Authority": (
-        16,
-        [
-            # English
-            "reserve bank", "rbi", "income tax", "government",
-            "sbi", "hdfc bank", "icici bank", "customs",
-            "police department", "cyber crime", "trai",
-            "ministry of finance", "sebi", "epfo",
-            # Hindi/Hinglish
-            "bhartiya reserve bank", "sarkar", "sarkari suchna",
-            "income tax vibhag", "police vibhag", "cyber cell",
-        ],
-    ),
-    "Reward": (
-        12,
-        [
-            # English
-            "you have won", "congratulations", "lucky winner",
-            "claim your prize", "gift card", "cash prize",
-            "lottery", "reward points", "free gift",
-            "selected for a reward", "bonus credited", "cashback",
-            # Hindi/Hinglish
-            "aapne jeeta hai", "inaam", "lucky draw",
-            "muft gift", "badhai ho", "aapko chuna gaya hai",
-        ],
-    ),
-    "Scarcity": (
-        10,
-        [
-            # English
-            "limited offer", "only a few left", "exclusive access",
-            "first come first served", "once in a lifetime",
-            "available for today only", "while stocks last",
-            "limited seats", "offer ending soon",
-            # Hindi/Hinglish
-            "sirf aaj ke liye", "simit samay", "pehle aao pehle pao",
-            "ant mein", "khatam hone wala hai",
-        ],
-    ),
-
-    # v2: Emotional Manipulation
-    "Emotional Manipulation": (
-        20,
-        [
-            "hi dad", "hi mom", "hi papa", "hi mummy",
-            "lost phone", "lost my phone", "new number",
-            "new phone", "this is my new number",
-            "old number stopped working",
-            "help", "emergency", "urgently need",
-            "please help", "need your help",
-            "i'm in trouble", "stuck somewhere",
-            "madad karo", "mushkil mein", "phone kho gaya",
-            "naya number", "meri madad karo",
-        ],
-    ),
-
-    # v3: Financial Pressure
-    "Financial Pressure": (
-        25,
-        [
-            "refund", "refund failed", "refund rejected",
-            "payment failed", "payment declined",
-            "transaction declined", "transaction failed",
-            "billing issue", "billing problem",
-            "update payment", "update payment method",
-            "processing issue", "processing error",
-            "avoid cancellation", "to avoid cancellation",
-            "account closure", "avoid account closure",
-            "temporary suspension", "account restricted",
-        ],
-    ),
-
-    # ------------------------------------------------------------------
-    # NEW v4: Financial Coercion
-    # Broader detection for corporate invoice fraud, vendor scams,
-    # and bank detail manipulation.  Weight 25 reflects the severity
-    # of financial coercion as a manipulation tactic.
-    # ------------------------------------------------------------------
-    "Financial Coercion": (
-        25,
-        [
-            "refund", "rejected", "declined",
-            "billing", "invoice", "payment",
-            "cancellation", "suspension",
-            "restricted", "overdue", "penalty",
-            "wire transfer", "transfer funds",
-            "bank details", "update bank details",
-            "confirm bank details",
-            "vendor payment", "process payment",
-            "payment pending", "payment rejected",
-            "account information",
-            "update account information",
-            "confirm account information",
-            "refund could not be processed",
-            "invoice overdue",
-        ],
-    ),
-}
-
-# Normalisation divisor
-_NORMALISATION_DIVISOR: int = 50
-
-
-# ============================================================================
-# Compound financial pressure detection
-# ============================================================================
-
-_FIN_COMPOUND_PAIRS: list[tuple[str, str]] = [
-    ("refund", "confirm"),
-    ("rejected", "verify"),
-    ("billing", "update"),
-    ("payment", "confirm"),
-    ("payment", "verify"),
-    ("transaction", "verify"),
-    ("invoice", "transfer"),
-    ("vendor", "update"),
-    ("bank details", "confirm"),
-    ("bank details", "update"),
-]
-
-
-def _detect_financial_pressure_compound(text: str) -> bool:
-    """
-    Return True if text contains a compound financial pressure pattern.
-    """
-    for word_a, word_b in _FIN_COMPOUND_PAIRS:
-        if _psych_word_match(word_a, text) and _psych_word_match(word_b, text):
-            return True
-    return False
-
-
-# ============================================================================
-# Explanation templates
-# ============================================================================
-
-_EMOTIONAL_EXPLANATION = (
-    "This message attempts emotional manipulation by impersonating "
-    "a trusted contact and requesting urgent assistance. Scammers "
-    "exploit familial trust to bypass rational verification steps."
-)
-
-_FINANCIAL_PRESSURE_EXPLANATION = (
-    "This message creates financial pressure by suggesting loss of money "
-    "or a failed refund unless immediate action is taken. This is a common "
-    "tactic in refund phishing and billing scams."
-)
-
-_FINANCIAL_COERCION_EXPLANATION = (
-    "This message creates financial pressure by implying monetary loss, "
-    "billing problems, or payment failure unless immediate action is taken. "
-    "Corporate invoice fraud and vendor payment scams commonly use this tactic."
-)
+    return bool(_psych_regex_cache[phrase].search(text))
 
 
 # ============================================================================
@@ -242,73 +124,69 @@ _FINANCIAL_COERCION_EXPLANATION = (
 
 def classify(text: str) -> dict[str, Any]:
     """
-    Analyse *text* for psychological manipulation tactics.
+    Classify psychological manipulation tactics in *text*.
 
     Returns
     -------
     dict
-        psych_score  – int   0-100
-        categories   – list[str]  matched psychological categories
-        explanation  – str   human-readable summary
+        psych_score   – int 0-100
+        categories    – list[str]
+        explanation   – str
     """
-    raw_score: int = 0
-    triggered_categories: list[str] = []
-    detail_parts: list[str] = []
+    detected: dict[str, list[str]] = {}
 
-    for category, (weight, keywords) in PSYCH_TRIGGERS.items():
-        hits: list[str] = []
-        for kw in keywords:
-            if _psych_word_match(kw, text):
-                hits.append(kw)
-                raw_score += weight
+    # Standard tactic detection
+    for tactic, phrases in TACTIC_PATTERNS.items():
+        matched = [p for p in phrases if _match(p, text)]
+        if matched:
+            detected[tactic] = matched
 
-        if hits:
-            triggered_categories.append(category)
-            detail_parts.append(
-                f"{category}: detected phrases – {', '.join(hits)}"
-            )
+    # --- Context-aware Financial Pressure (v6) ---
+    # Check for negative intent first
+    has_negative_intent = any(_match(neg, text) for neg in _FINANCIAL_NEGATIVE_INTENT)
 
-    # Compound financial pressure detection
-    if "Financial Pressure" not in triggered_categories:
-        if _detect_financial_pressure_compound(text):
-            triggered_categories.append("Financial Pressure")
-            raw_score += 25
-            detail_parts.append(
-                "Financial Pressure: compound pattern detected "
-                "(financial term + action verb)"
-            )
+    if not has_negative_intent:
+        # Financial Pressure: loss/denial indicators
+        fp_matched = [p for p in _FINANCIAL_LOSS_INDICATORS if _match(p, text)]
+        if fp_matched:
+            detected["Financial Pressure"] = fp_matched
 
-    # Normalise to 0-100
-    psych_score: int = int(min((raw_score / _NORMALISATION_DIVISOR) * 100, 100))
+        # Financial Coercion: action demands on financial data
+        fc_matched = [p for p in _FINANCIAL_COERCION_INDICATORS if _match(p, text)]
+        if fc_matched:
+            detected["Financial Coercion"] = fc_matched
+
+    # --- Score calculation ---
+    categories = sorted(detected.keys())
+    total_matches = sum(len(v) for v in detected.values())
+
+    if not categories:
+        return {
+            "psych_score": 0,
+            "categories": [],
+            "explanation": "No psychological manipulation tactics detected.",
+        }
+
+    # Base score: 15 per category + 5 per matched phrase, capped at 100
+    base = len(categories) * 15
+    phrase_bonus = total_matches * 5
+    psych_score = min(base + phrase_bonus, 100)
 
     # Build explanation
-    if triggered_categories:
-        preambles: list[str] = []
-        if "Emotional Manipulation" in triggered_categories:
-            preambles.append(_EMOTIONAL_EXPLANATION)
-        if "Financial Pressure" in triggered_categories:
-            preambles.append(_FINANCIAL_PRESSURE_EXPLANATION)
-        if "Financial Coercion" in triggered_categories:
-            preambles.append(_FINANCIAL_COERCION_EXPLANATION)
+    parts = []
+    for cat in categories:
+        phrases = detected[cat]
+        sample = ", ".join(f'"{p}"' for p in phrases[:3])
+        parts.append(f"{cat} ({sample})")
 
-        if preambles:
-            explanation = (
-                " ".join(preambles) + " "
-                + "Detailed analysis: "
-                + "; ".join(detail_parts)
-                + "."
-            )
-        else:
-            explanation = (
-                "This message employs psychological manipulation tactics. "
-                + "; ".join(detail_parts)
-                + "."
-            )
-    else:
-        explanation = "No significant psychological manipulation tactics detected."
+    explanation = (
+        f"Detected {len(categories)} manipulation tactic(s): "
+        + "; ".join(parts)
+        + "."
+    )
 
     return {
         "psych_score": psych_score,
-        "categories": triggered_categories,
+        "categories": categories,
         "explanation": explanation,
     }
