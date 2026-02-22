@@ -49,6 +49,10 @@ PATCH v6 (CONTEXT-AWARE FINANCIAL DETECTION):
 PATCH v7 (SOCIAL IMPERSONATION MONEY DETECTION):
   - Added numeric money pattern detection (3+ digit numbers) to
     _detect_social_impersonation for reliable has_money_request flagging
+
+PATCH v9 (CALL/IVR DETECTION HARDENING):
+  - Extended call_transcript phrases for IVR-style scam patterns
+  - Added regex-based "press <digit>" IVR detection
 """
 
 from __future__ import annotations
@@ -187,6 +191,7 @@ SCAM_KEYWORDS: dict[str, tuple[int, list[str]]] = {
 
     # ------------------------------------------------------------------
     # Call-transcript scam patterns
+    # PATCH v9: Extended with IVR-style phrases
     # ------------------------------------------------------------------
     "call_transcript": (
         14,
@@ -197,9 +202,23 @@ SCAM_KEYWORDS: dict[str, tuple[int, list[str]]] = {
             "your case number is", "federal investigation",
             "we are calling from", "this is a courtesy call",
             "you need to pay immediately",
+            # PATCH v9: Additional IVR / call scam phrases
+            "account freeze", "account frozen",
+            "automated call", "this is support",
+            "this is bank support", "prevent your account",
+            "to avoid account freeze",
         ],
     ),
 }
+
+# ============================================================================
+# IVR REGEX PATTERN (PATCH v9)
+# ============================================================================
+# Detects "press <digit>" patterns commonly used in IVR scam calls.
+# Examples: "Press 1", "press 2 now", "Press 9 to continue", "press1"
+# ============================================================================
+
+_IVR_PRESS_DIGIT_RE = re.compile(r"\bpress\s*\d\b", re.IGNORECASE)
 
 # ============================================================================
 # CONTEXT-AWARE FINANCIAL DETECTION (v6)
@@ -382,6 +401,8 @@ def _detect_keywords(text: str) -> tuple[int, list[str], list[dict[str, str]]]:
     """
     Scan *text* against every category in SCAM_KEYWORDS.
     NOTE: financial_data_request is NOT in SCAM_KEYWORDS anymore.
+
+    PATCH v9: Also runs IVR regex detection for call_transcript category.
     """
     raw_score: int = 0
     categories_seen: set[str] = set()
@@ -395,6 +416,21 @@ def _detect_keywords(text: str) -> tuple[int, list[str], list[dict[str, str]]]:
                 matched_phrases.append(
                     {"phrase": phrase, "category": category}
                 )
+
+    # PATCH v9: Regex-based IVR "press <digit>" detection for call_transcript.
+    # Only adds weight once even if multiple "press N" patterns are found,
+    # to avoid over-scoring.  If call_transcript was already detected by
+    # phrase matching above, we still record the regex match for
+    # explainability but do NOT double-count the weight.
+    ivr_match = _IVR_PRESS_DIGIT_RE.search(text)
+    if ivr_match:
+        call_weight = SCAM_KEYWORDS["call_transcript"][0]
+        if "call_transcript" not in categories_seen:
+            raw_score += call_weight
+        categories_seen.add("call_transcript")
+        matched_phrases.append(
+            {"phrase": ivr_match.group(0), "category": "call_transcript"}
+        )
 
     return raw_score, sorted(categories_seen), matched_phrases
 
@@ -780,3 +816,15 @@ def analyze(text: str) -> dict[str, Any]:
 #     "Confirm your bank details within 6 hours to avoid cancellation."
 #     → financial_data_request (confirm + avoid cancellation + within 6 hours)
 #     → score: 70-85, risk: High/Critical
+#
+# === CALL/IVR DETECTION (PATCH v9) ===
+#
+# 16. IVR + authority impersonation (MUST be HIGH):
+#     "Hi, this is SBI support. Press 1 now to prevent your account from being frozen."
+#     → call_transcript + authority_impersonation + fear
+#     → score: ≥65, risk: High
+#
+# 17. Simple IVR scam (MUST be HIGH):
+#     "Press 1 to avoid account freeze."
+#     → call_transcript (press 1 regex + account freeze phrase)
+#     → score: ≥65, risk: High
