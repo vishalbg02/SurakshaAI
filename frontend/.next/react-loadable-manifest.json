@@ -1,8 +1,4 @@
 {
-  "app\\analyzer\\page.jsx -> @/lib/api": {
-    "id": "app\\analyzer\\page.jsx -> @/lib/api",
-    "files": []
-  },
   "app\\dashboard\\page.jsx -> @/components/TrendCharts": {
     "id": "app\\dashboard\\page.jsx -> @/components/TrendCharts",
     "files": [
